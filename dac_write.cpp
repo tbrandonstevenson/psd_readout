@@ -1,16 +1,16 @@
 #include <SPI.h>
-#include "spi_peripherals.h"
+#include "dac_write.h"
 
 /*
  * DAC Write Functions for AD5623R
  *
- * Datasheet: 
+ * Datasheet:
  * http://www.analog.com/static/imported-files/data_sheets/AD5623R_43R_63R.pdf
  *
- * 24 bit data format: 
- * | DC | DC | CMD2 | CMD1 | CMD0 | A2 | A1 | A0 | D13 ...0 | X | X| 
+ * 24 bit data format:
+ * | DC | DC | CMD2 | CMD1 | CMD0 | A2 | A1 | A0 | D13 ...0 | X | X|
  *
- * Command Bits: 
+ * Command Bits:
  * C2 | C1 | C0 | Command
  * ---+----+----+--------------------------------------------------------
  *  0 |  0 |  0 | Write to Input Register n
@@ -22,7 +22,7 @@
  *  1 |  1 |  0 | LD AC register setup
  *  1 |  1 |  1 | Internal reference setup (on/off )
  *
- * Address bits: 
+ * Address bits:
  * A2 | A1 | A0 | ADDRESS (n)
  * ---+----+----+------------
  * 0  | 0  | 0  | DAC A
@@ -36,27 +36,29 @@
 #define RESET            0x5
 #define IREF_CTL         0x7
 
-int setDAC(unsigned int dac_counts, unsigned int channel)
+static const int DAC_CS  [2] = {DAC_CS1,  DAC_CS2 };
+
+int setDAC(int idac, int channel, unsigned int dac_counts)
 {
     // Check for invalid dac value
     if ((dac_counts < 0) | (dac_counts > 16383)) {
-        return (-1); 
+        return (-1);
     }
 
     // Check for invalid channel
     if ((channel < 0) | (channel > 1)) {
-        return (-1); 
+        return (-1);
     }
 
     // construct packet of 24-bit data format
-    unsigned int data = build_packet (WRITE_AND_UPDATE, channel, dac_counts); 
+    unsigned int data = build_packet (WRITE_AND_UPDATE, channel, dac_counts);
 
-    // decompose packet into 3 bytes and write. 
-    digitalWrite(52, LOW); 
+    // decompose packet into 3 bytes and write.
+    digitalWrite(DAC_CS[idac], LOW);
     SPI.transfer((data >> 16) & 0xFF);
     SPI.transfer((data >>  8) & 0xFF);
     SPI.transfer((data >>  0) & 0xFF);
-    digitalWrite(52, HIGH); 
+    digitalWrite(DAC_CS[idac], HIGH);
     return (1);
 }
 
@@ -65,5 +67,5 @@ unsigned int build_packet (unsigned int command, unsigned int adr, unsigned int 
     packet |= (0x7    & command) << 19; //CMD Bits
     packet |= (0x7    & adr)     << 16; //ADR Bits
     packet |= (0x3FFF & data)    <<  2; //Value
-    return (packet); 
+    return (packet);
 }

@@ -1,299 +1,219 @@
 #include <SPI.h>
-#include "spi_peripherals.h"
+#include "dac_write.h"
 
-#define LED         22U
-#define TRIG        50U
-#define CPU_CLOCK   51U
+#define LED1        24U
+#define LED2        25U
+#define TRIG1       26U
+#define TRIG2       27U
+#define OAVCC   0
+#define VTHRESH 1
 
-// DAC Channels
-#define OAVCC        0U
-#define VR3          1U
-#define VTHRESH      1U
+static const int TRIG [2] = {TRIG1, TRIG2}; 
+static const int LED  [2] = {LED1,  LED2 }; 
 
-// SPI CS Channels
-#define DAC_CS      52U
-#define ADC_CS       4U
-
-#define SENSE_3V3   24U
-
-#define NATIVEADC
-
-//#define DECOUTPUT
-//#define HEXOUTPUT
-//#define CALIBRATED
-//#define NATIVEUSB
 
 char msg [110];
-int nsamples = 500;
-int nsamples_per_cycle = 5;
-uint8_t last_read_state;
+int NSAMPLES = 500;  // Total number of samples to accumulate before printing measurement
+int NSAMPLES_PER_CYCLE = 5; // Number of samples to take in a duty cycle 
+bool last_read_state;
+
+volatile bool is_reading = false; 
+volatile char trig_source; 
+
+template <typename T>
+struct position_measurement {
+    T x1=0; 
+    T x2=0; 
+    T y1=0; 
+    T y2=0;
+};
+
+void readSensor(int ipsd, position_measurement<short> &data); 
 
 int count_high = 0;
-unsigned long     sum_x1_high=0;
-unsigned long     sum_x2_high=0;
-unsigned long     sum_y1_high=0;
-unsigned long     sum_y2_high=0;
-unsigned long sum_deltax_high=0;
-unsigned long sum_deltay_high=0;
-
 int count_low = 0;
-unsigned long     sum_x1_low=0;
-unsigned long     sum_x2_low=0;
-unsigned long     sum_y1_low=0;
-unsigned long     sum_y2_low=0;
-unsigned long sum_deltax_low=0;
-unsigned long sum_deltay_low=0;
 
-void setup()
-{
+position_measurement<long> sum_high[2]; 
+position_measurement<long> sum_low [2]; 
+
+void initializeSerial () {
     // Setup Serial Bus
-#ifdef NATIVEUSB
-    SerialUSB.begin(115200);
-#else
     Serial.begin(115200);
-#endif
 
     SPI.begin();
     SPI.setDataMode(SPI_MODE1);
     SPI.setBitOrder(MSBFIRST);
     SPI.setClockDivider(4);
 
-    // Configure Trigger Interrupt
-    pinMode(TRIG, INPUT);                     // configure as input
-    attachInterrupt(TRIG, interrupt, CHANGE); // enable interrupts on this pin
-    digitalWrite(TRIG, LOW);                  // turn on a pulldown resistor
+}
 
-    // Configure Trigger Interrupt
-    pinMode(48, INPUT);                     // configure as input
-    attachInterrupt(48, interrupt, CHANGE); // enable interrupts on this pin
-    digitalWrite(48, LOW);                  // turn on a pulldown resistor
-
-    // Configure DAC Chip Select
-    pinMode(DAC_CS, OUTPUT);
-    digitalWrite(DAC_CS,HIGH);
-
-    // Configure ADC Chip Select
-    pinMode(ADC_CS, OUTPUT);
-    digitalWrite(ADC_CS,HIGH);
-
-    // Configure CPU Clock INput
-    pinMode(CPU_CLOCK, INPUT);
-
-    // 3.3V SENSE Interrupt
-    // Loops for rising edge of a 3.3V line from the ADC Host Board
-    // Ensures that ADC
-    pinMode(SENSE_3V3, INPUT);
-    attachInterrupt(SENSE_3V3, initialize_board, RISING); // enable interrupts on this pin
-    digitalWrite(SENSE_3V3, LOW);                  // turn on a pulldown resistor
-
-    /* Turn off LED */
-    pinMode(LED, OUTPUT);
-    digitalWrite(LED,LOW);
-
-    // Set Resolution for analog Read and Write for Arduino Built-in DAC/ADC
+void setup()
+{
+    initializeSerial (); 
+    configurePinModes(); 
     analogReadResolution(12);
-
     initialize_board();
 }
 
 void loop()
 {
+    if (is_reading) {
+        // wait for signals to rise
+        delayMicroseconds(400);
+
+        //Check that Currently Reading State is opposite of Last Read State (HIGH vs. LOW)
+        bool state = digitalRead(TRIG[trig_source]);
+
+        digitalWrite(LED[0],state);
+        digitalWrite(LED[1],state);
+
+        if (state==last_read_state) {
+            return;
+        }
+
+        else {
+            last_read_state = state;
+        }
+
+        position_measurement<short>    data [2]; 
+        position_measurement<long>     sum  [2]; 
+
+        // Take some number of samples in an individual cycle
+        for (int i = 0; i < 2*NSAMPLES_PER_CYCLE; i++) {
+            // read PSD 0 on even measurements, and PSD1 on odd measurements
+            int ipsd = i%2; 
+            readSensor(ipsd, data[ipsd]); 
+            sum[ipsd].x1     += data[ipsd].x1;
+            sum[ipsd].x2     += data[ipsd].x2;
+            sum[ipsd].y1     += data[ipsd].y1;
+            sum[ipsd].y2     += data[ipsd].y2;
+        }
+
+        for (int ipsd=0; ipsd<2; ipsd++) {
+            data[ipsd].x1     = sum[ipsd].x1 / NSAMPLES_PER_CYCLE;
+            data[ipsd].x2     = sum[ipsd].x2 / NSAMPLES_PER_CYCLE;
+            data[ipsd].y1     = sum[ipsd].y1 / NSAMPLES_PER_CYCLE;
+            data[ipsd].y2     = sum[ipsd].y2 / NSAMPLES_PER_CYCLE;
+
+            // Accumulate values for high state
+            if (state==HIGH && count_high < NSAMPLES) {
+                count_high += 1;
+
+                sum_high[ipsd].x1     += data[ipsd].x1;
+                sum_high[ipsd].x2     += data[ipsd].x2;
+                sum_high[ipsd].y1     += data[ipsd].y1;
+                sum_high[ipsd].y2     += data[ipsd].y2;
+            }
+
+            // Accumulate values for low state
+            else if (state==LOW && count_low < NSAMPLES) {
+                count_low += 1;
+
+                sum_low[ipsd].x1 += data[ipsd].x1;
+                sum_low[ipsd].x2 += data[ipsd].x2;
+                sum_low[ipsd].y1 += data[ipsd].y1;
+                sum_low[ipsd].y2 += data[ipsd].y2;
+            }
+        }
+
+        double x[2] = {0}; 
+        double y[2] = {0};
+
+        if ((count_low == NSAMPLES) && (count_high == NSAMPLES)) {
+
+            // Take average of last NSAMPLES values
+            position_measurement<double> corrected[2]; 
+            double x[2]; 
+            double y[2]; 
+
+            for (int ipsd=0; ipsd<2; ipsd++) {
+                corrected[ipsd].x1     = (sum_high[ipsd].x1     - sum_low[ipsd].x1    ) / NSAMPLES;
+                corrected[ipsd].x2     = (sum_high[ipsd].x2     - sum_low[ipsd].x2    ) / NSAMPLES;
+                corrected[ipsd].y1     = (sum_high[ipsd].y1     - sum_low[ipsd].y1    ) / NSAMPLES;
+                corrected[ipsd].y2     = (sum_high[ipsd].y2     - sum_low[ipsd].y2    ) / NSAMPLES;
+
+                x[ipsd] = (corrected[ipsd].x2-corrected[ipsd].x1)/(corrected[ipsd].x2+corrected[ipsd].x1);
+                y[ipsd] = (corrected[ipsd].y2-corrected[ipsd].y1)/(corrected[ipsd].y2+corrected[ipsd].y1);
+
+                sprintf(msg, "%1i: % 8.6f % 8.6f", ipsd, x[ipsd], y[ipsd]);
+                Serial.println(msg);
+            }
+
+            // reset 
+            count_low = 0;
+            count_high = 0;
+            memset (sum_high, 0, sizeof(sum_high[0])*2); 
+            memset (sum_low,  0, sizeof(sum_low [0])*2); 
+        }
+    is_reading = false; 
+    }
 }
 
+static const int PSD_PIN [2][4] = {
+    {0,1,2,3}, 
+    {4,5,6,7}
+};
 
 /* Routine to take a reading from a single sensor and transmit results through TCP/IP */
-int ReadSensor(uint16_t &x1, uint16_t &x2, uint16_t &y1, uint16_t &y2, uint16_t &deltax, uint16_t &deltay)
+void readSensor(int ipsd, position_measurement<short> &data)
 {
-    digitalWrite(LED,HIGH);
-    int fail=0;
-#ifdef NATIVEADC
-    // Read from Onboard ADC
-    fail |= digitalRead(CPU_CLOCK);
-    deltay = analogRead(0x0);
-    fail |= digitalRead(CPU_CLOCK);
-    deltax = analogRead(0x1);
-    y2     = analogRead(0x2);
-    fail |= digitalRead(CPU_CLOCK);
-    y1     = analogRead(0x3);
-    fail |= digitalRead(CPU_CLOCK);
-    x2     = analogRead(0x4);
-    fail |= digitalRead(CPU_CLOCK);
-    x1     = analogRead(0x5);
-    fail |= digitalRead(CPU_CLOCK);
-#else
-    // Read from External ADC
-    fail |= digitalRead(CPU_CLOCK);
-    x1     = measureADC(0x0);
-    fail |= digitalRead(CPU_CLOCK);
-    x2     = measureADC(0x1);
-    fail |= digitalRead(CPU_CLOCK);
-    y1     = measureADC(0x2);
-    fail |= digitalRead(CPU_CLOCK);
-    y2     = measureADC(0x3);
-    fail |= digitalRead(CPU_CLOCK);
-    deltay = measureADC(0x4);
-    fail |= digitalRead(CPU_CLOCK);
-    deltax = measureADC(0x5);
-    fail |= digitalRead(CPU_CLOCK);
-#endif
-    digitalWrite(LED,LOW);
-    return (fail);
+    data.x1     = analogRead(PSD_PIN[ipsd][0]);
+    data.x2     = analogRead(PSD_PIN[ipsd][1]);
+    data.y1     = analogRead(PSD_PIN[ipsd][2]);
+    data.y2     = analogRead(PSD_PIN[ipsd][3]);
 }
 
 /* Pin Change Interrupt Routines */
-void interrupt() {
-    int fail = 0;
 
-    //Check that Currently Reading State is opposite of Last Read State (HIGH vs. LOW)
-    uint8_t state = digitalRead(TRIG);
-    if (state==last_read_state) {
-        return;
-    }
-    else {
-        last_read_state = state;
-    }
-
-    unsigned int then = micros();
-
-    uint16_t x1, x2, y1, y2, deltax, deltay;
-
-    // Reset Sums
-    long sum_x1 = 0;
-    long sum_x2 = 0;
-    long sum_y1 = 0;
-    long sum_y2 = 0;
-    long sum_deltax = 0;
-    long sum_deltay = 0;
-
-    // wait for signals to rise
-    delayMicroseconds(400);
-
-    // some primitive debouncing
-    static unsigned long last_interrupt_time = 0;
-    unsigned long interrupt_time = micros();
-    if (interrupt_time - last_interrupt_time < 800) {
-        //Serial.println("Skipped too fast measurement"); 
-        //Serial.println(interrupt_time-last_interrupt_time);
-        return;
-    }
-    last_interrupt_time = interrupt_time;  //the rest of the debounce code
-
-
-    // Take some number of samples in an individual cycle
-    for (int i = 0; i < nsamples_per_cycle; i++) {
-        fail |= ReadSensor(x1, x2, y1, y2, deltax, deltay);
-        sum_x1 += x1;
-        sum_x2 += x2;
-        sum_y1 += y1;
-        sum_y2 += y2;
-        sum_deltax += deltax;
-        sum_deltay += deltay;
-    }
-
-    if (fail) {
-#ifdef NATIVEUSB
-        SerialUSB.println("reject");
-#else
-        Serial.println("reject");
-#endif
-        return;
-    }
-
-    // Accumulate samples for individual sample
-    x1     = sum_x1 / nsamples_per_cycle;
-    x2     = sum_x2 / nsamples_per_cycle;
-    y1     = sum_y1 / nsamples_per_cycle;
-    y2     = sum_y2 / nsamples_per_cycle;
-    deltax = sum_deltax / nsamples_per_cycle;
-    deltay = sum_deltay / nsamples_per_cycle;
-
-    // Accumulate values for high state
-    if (state == 1 && count_high < nsamples) {
-        count_high += 1;
-        sum_x1_high += x1;
-        sum_x2_high += x2;
-        sum_y1_high += y1;
-        sum_y2_high += y2;
-        sum_deltax_high += deltax;
-        sum_deltay_high += deltay;
-    }
-
-    // Accumulate values for low state
-    else if (state == 0 && count_low < nsamples) {
-        count_low += 1;
-        sum_x1_low += x1;
-        sum_x2_low += x2;
-        sum_y1_low += y1;
-        sum_y2_low += y2;
-        sum_deltax_low += deltax;
-        sum_deltay_low += deltay;
-    }
-
-
-    char str;
-
-    if ((count_low == nsamples) && (count_high == nsamples)) {
-        // reset count
-        count_low = 0;
-        // reset count
-        count_high = 0;
-
-        // Take average of last nsamples values
-        double x1_avg     = (sum_x1_high     - sum_x1_low    ) / nsamples;
-        double x2_avg     = (sum_x2_high     - sum_x2_low    ) / nsamples;
-        double y1_avg     = (sum_y1_high     - sum_y1_low    ) / nsamples;
-        double y2_avg     = (sum_y2_high     - sum_y2_low    ) / nsamples;
-        double deltax_avg = (sum_deltax_high - sum_deltax_low) / nsamples;
-        double deltay_avg = (sum_deltay_high - sum_deltay_low) / nsamples;
-
-        double x = (x2_avg-x1_avg)/(x2_avg+x1_avg);
-        double y = (y2_avg-y1_avg)/(y2_avg+y1_avg);
-
-#ifdef HEXOUTPUT
-        //Print output in Hex Format
-        sprintf(msg, "%04X,%04X,%04X,%04X,%04X,%04X\n", str, x1, x2, y1, y2, deltax, deltay);
-#elif defined DECOUTPUT
-#ifdef NATIVEADC
-        //Print output in Decimal format, scaled for 3.3V internal ADC
-        sprintf(msg, "% 7.5f % 7.5f % 7.5f % 7.5f % 7.5f % 7.5f % 7.5f % 7.5f\n", x1_avg*3.3/4095, x2_avg*3.3/4095, y1_avg*3.3/4095, y2_avg*3.3/4095, deltax_avg*3.3/4095-2.5, (x1_avg-x2_avg)*3.3/4095, deltay_avg*3.3/4095-2.5, -(y1_avg-y2_avg)*3.3/4095);
-#else
-        //Print output in Decimal format, scaled for 5.0V external ADC
-        sprintf(msg, "% 8.6f % 8.6f % 8.6f % 8.6f % 8.6f % 8.6f % 8.6f % 8.6f\n", x1_avg*5.0/16383, x2_avg*5.0/16383, y1_avg*5.0/16383, y2_avg*5.0/16383, deltax_avg*5.0/16383-2.5, (x1_avg-x2_avg)*5.0/16383, deltay_avg*5.0/16383-2.5, -(y1_avg-y2_avg)*5.0/16383);
-#endif
-#else
-        sprintf(msg, "% 8.6f % 8.6f", x, y);
-#endif
-
-#ifdef NATIVEUSB
-        SerialUSB.println(msg);
-#else
-        Serial.println(msg);
-#endif
-
-        // Reset sum to zero
-        sum_x1_high     = 0;
-        sum_x2_high     = 0;
-        sum_y1_high     = 0;
-        sum_y2_high     = 0;
-        sum_deltax_high = 0;
-        sum_deltay_high = 0;
-
-        // Reset sum to zero
-        sum_x1_low     = 0;
-        sum_x2_low     = 0;
-        sum_y1_low     = 0;
-        sum_y2_low     = 0;
-        sum_deltax_low = 0;
-        sum_deltay_low = 0;
-    }
-
-    unsigned int now = micros();
-    //Serial.println((now-then));
+void interrupt1()
+{
+    trig_source=0; 
+    interrupt(); 
 }
 
-void initialize_board () {
-    initializeADC();
-    setDAC(16011, OAVCC);    // Set OAVCC to 4.867V for 14-bits 16383 at 5.0V Vref
-    setDAC(1638,  VTHRESH);  // Set Comparator Threshold for 14-bits 16383 at 5.0V Vref
+void interrupt2()
+{
+    trig_source=1; 
+    interrupt(); 
 }
 
+void interrupt() 
+{ 
+    if (!is_reading) {
+        is_reading = true; 
+    }
+}; 
+
+void initialize_board ()
+{
+    delay(2000); 
+    for (int i=0; i<2; i++) {
+        setDAC(i, OAVCC,   16011); // Set OAVCC to 4.867V for 14-bits 16383 at 5.0V Vref
+        setDAC(i, VTHRESH, 1638);  // Set Comparator Threshold for 14-bits 16383 at 5.0V Vref
+    }
+}
+
+void configurePinModes () {
+    // Configure Trigger Interrupt
+    pinMode(TRIG1, INPUT);                    // configure as input
+    pinMode(TRIG2, INPUT);                    // configure as input
+    attachInterrupt(TRIG1, interrupt, CHANGE); // enable interrupts on this pin
+    attachInterrupt(TRIG2, interrupt, CHANGE); // enable interrupts on this pin
+    digitalWrite(TRIG1, LOW);                  // turn on a pulldown resistor
+    digitalWrite(TRIG2, LOW);                  // turn on a pulldown resistor
+
+    // Configure DAC Chip Select
+    pinMode(DAC_CS1, OUTPUT);
+    digitalWrite(DAC_CS1,HIGH);
+
+    // Configure DAC Chip Select
+    pinMode(DAC_CS2, OUTPUT);
+    digitalWrite(DAC_CS2,HIGH);
+
+    /* Turn off LED */
+    pinMode(LED1, OUTPUT);
+    digitalWrite(LED2,LOW);
+
+    pinMode(LED2, OUTPUT);
+    digitalWrite(LED2,LOW);
+}

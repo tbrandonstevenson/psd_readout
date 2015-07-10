@@ -14,8 +14,8 @@ static const int LED  [2] = {LED1,  LED2 };
 
 
 char msg [110];
-int NSAMPLES = 500;  // Total number of samples to accumulate before printing measurement 500
-int NSAMPLES_PER_CYCLE = 2; // Number of samples to take in a duty cycle 5
+int NSAMPLES = 500;  // Total number of samples to accumulate before printing measurement 
+int NSAMPLES_PER_CYCLE = 2; // Number of samples to take in a duty cycle 
 bool last_read_state;
 
 volatile bool is_reading = false;
@@ -118,10 +118,10 @@ void loop()
         sprintf(msg, "%1i: % 6.4f % 6.4f", ipsd, voltage(double(difference.x2-difference.x1))/voltage(double(difference.x2+difference.x1)), voltage(double(difference.y2-difference.y1))/voltage(double(difference.y2+difference.y1)));
         Serial.println(msg);
 
-//        sprintf(msg, "%1i high: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f", ipsd, voltage(sum_high[ipsd].x1), voltage(sum_high[ipsd].x2), voltage(sum_high[ipsd].y1), voltage(sum_high[ipsd].y2));
-//        Serial.println(msg);
-//        sprintf(msg, "%1i  low: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f", ipsd, voltage(sum_low[ipsd].x1), voltage(sum_low[ipsd].x2), voltage(sum_low[ipsd].y1), voltage(sum_low[ipsd].y2));
-//        Serial.println(msg);
+        //sprintf(msg, "%1i high: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f", ipsd, voltage(sum_high[ipsd].x1), voltage(sum_high[ipsd].x2), voltage(sum_high[ipsd].y1), voltage(sum_high[ipsd].y2));
+        //Serial.println(msg);
+        //sprintf(msg, "%1i  low: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f", ipsd, voltage(sum_low[ipsd].x1), voltage(sum_low[ipsd].x2), voltage(sum_low[ipsd].y1), voltage(sum_low[ipsd].y2));
+        //Serial.println(msg);
       }
 
       // reset
@@ -176,7 +176,7 @@ void interrupt()
 void initialize_board ()
 {
   for (int i = 0; i < 2; i++) {
-    setDAC(i, OAVCC,   14497); // 16011 Set OAVCC to 4.867V for 14-bits 16383 at 5.0V Vref
+    setDAC(i, OAVCC,   16011); // 16011 Set OAVCC to 4.867V for 14-bits 16383 at 5.0V Vref
     setDAC(i, VTHRESH, 1638);  // Set Comparator Threshold for 14-bits 16383 at 5.0V Vref
   }
 }

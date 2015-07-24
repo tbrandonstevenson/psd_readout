@@ -5,17 +5,20 @@ struct positionMeasurement {
     int y1 = 0;
     int y2 = 0;
 
-    double x() {
-      double x = double((x2+x1)/double(x2-x1));
-      return x; 
+    double x()
+    {
+      double x = double((x2-x1)/double(x2+x1));
+      return x;
     }
 
-    double y() {
-      double y = double((y2+y1)/double(y2-y1));
-      return y; 
+    double y()
+    {
+      double y = double((y2-y1)/double(y2+y1));
+      return y;
     }
 
-    void reset () {
+    void reset ()
+    {
         x1 = 0;
         x2 = 0;
         y1 = 0;

@@ -36,32 +36,6 @@
 #define RESET            0x5
 #define IREF_CTL         0x7
 
-static const int DAC_CS  [2] = {DAC_CS1,  DAC_CS2 };
-
-int setDAC(int idac, int channel, unsigned int dac_counts)
-{
-    // Check for invalid dac value
-    if ((dac_counts < 0) | (dac_counts > 16383)) {
-        return (-1);
-    }
-
-    // Check for invalid channel
-    if ((channel < 0) | (channel > 1)) {
-        return (-1);
-    }
-
-    // construct packet of 24-bit data format
-    unsigned int data = build_packet (WRITE_AND_UPDATE, channel, dac_counts);
-
-    // decompose packet into 3 bytes and write.
-    digitalWrite(DAC_CS[idac], LOW);
-    SPI.transfer((data >> 16) & 0xFF);
-    SPI.transfer((data >>  8) & 0xFF);
-    SPI.transfer((data >>  0) & 0xFF);
-    digitalWrite(DAC_CS[idac], HIGH);
-    return (1);
-}
-
 unsigned int build_packet (unsigned int command, unsigned int adr, unsigned int data) {
     unsigned int packet = 0;
     packet |= (0x7    & command) << 19; //CMD Bits
@@ -69,3 +43,25 @@ unsigned int build_packet (unsigned int command, unsigned int adr, unsigned int 
     packet |= (0x3FFF & data)    <<  2; //Value
     return (packet);
 }
+
+void setDAC(int channel, unsigned int dac_counts)
+{
+    // Check for invalid dac value
+    if ((dac_counts < 0) | (dac_counts > 16383))
+        return;
+
+    // Check for invalid channel
+    if ((channel < 0) | (channel > 1))
+        return;
+
+    // construct packet of 24-bit data format
+    unsigned int data = build_packet (WRITE_AND_UPDATE, channel, dac_counts);
+
+    // decompose packet into 3 bytes and write.
+    digitalWrite(DAC_CS, LOW);
+    SPI.transfer((data >> 16) & 0xFF);
+    SPI.transfer((data >>  8) & 0xFF);
+    SPI.transfer((data >>  0) & 0xFF);
+    digitalWrite(DAC_CS, HIGH);
+}
+

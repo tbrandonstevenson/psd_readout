@@ -36,6 +36,8 @@
 #define RESET            0x5
 #define IREF_CTL         0x7
 
+static const int DAC_CS = 43;
+
 unsigned int build_packet (unsigned int command, unsigned int adr, unsigned int data) {
     unsigned int packet = 0;
     packet |= (0x7    & command) << 19; //CMD Bits
@@ -47,12 +49,14 @@ unsigned int build_packet (unsigned int command, unsigned int adr, unsigned int 
 void setDAC(int channel, unsigned int dac_counts)
 {
     // Check for invalid dac value
-    if ((dac_counts < 0) | (dac_counts > 16383))
+    if ((dac_counts < 0) | (dac_counts > 16383)) {
         return;
+    }
 
     // Check for invalid channel
-    if ((channel < 0) | (channel > 1))
+    if ((channel < 0) | (channel > 1)) {
         return;
+    }
 
     // construct packet of 24-bit data format
     unsigned int data = build_packet (WRITE_AND_UPDATE, channel, dac_counts);

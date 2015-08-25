@@ -2,25 +2,20 @@
 #include "dac_write.h"
 #include "position_measurement.h"
 
-#define LED1        24U
-#define LED2        25U
+static const int    LED     [2]    = { 24, 25 };
+static const int    PSD_PIN [2][4] = {{ 0,  1,  2,  3}, { 4,  5,  6,  7}};
+static const int    TRIG    [2][4] = {{41, 50, 34, 39}, {36, 37, 38, 40}}; 
+static const int    TRIGf   [8]    = { 41, 50, 34, 39 ,  36, 37, 38, 40 }; 
 
-#define TRIG_A1     41U
-#define TRIG_A2     50U
-#define TRIG_A3     34U
-#define TRIG_A4     39U
+                                     //A1, A2, A3, A4, B1, B2, B3, B4
+static const int    TRIG_ENABLE [8] = {1,  1,  1,  1,  1,  1,  1,  1}; 
 
-#define TRIG_B1     36U
-#define TRIG_B2     37U
-#define TRIG_B3     38U
-#define TRIG_B4     40U
+static const int    NSAMPLES = 500;         // Total number of samples to accumulate before printing measurement 500
+static const int    NSAMPLES_PER_CYCLE = 2; // Number of samples to take in a duty cycle 5
 
-static const int TRIG [8] = {TRIG_A1, TRIG_A2, TRIG_A3, TRIG_A4, TRIG_B1, TRIG_B2, TRIG_B3, TRIG_B4};
-static const int LED  [2] = {LED1,  LED2 };
+static const float  VREF = 2.5f;  // Analog Voltage Reference
 
 char msg [110];
-int NSAMPLES = 500;  // Total number of samples to accumulate before printing measurement 
-int NSAMPLES_PER_CYCLE = 2; // Number of samples to take in a duty cycle 
 bool last_read_state;
 
 volatile bool is_reading = false;
@@ -28,8 +23,8 @@ volatile char trig_source = 0;
 
 void readSensor(int ipsd, positionMeasurement &data);
 
-int count_high[2] = {0, 0};
-int count_low [2] = {0, 0};
+int count_high [2] = {0, 0};
+int count_low  [2] = {0, 0};
 
 positionMeasurement sum_high[2];
 positionMeasurement sum_low [2];
@@ -44,34 +39,35 @@ void setup()
   // Setup Serial Bus
   Serial.begin(115200);
 
-  SPI.begin();
-  SPI.setDataMode(SPI_MODE1);
-  SPI.setBitOrder(MSBFIRST);
-  SPI.setClockDivider(4);
+  //SPI.begin();
+  //SPI.setDataMode(SPI_MODE1);
+  //SPI.setBitOrder(MSBFIRST);
+  //SPI.setClockDivider(4);
 
   Serial.println("configuring board...");
 
-  configurePinModes();
-  analogReadResolution(12);
-  analogWriteResolution(12);
-  configureDACs();
+  configureBoard();
 
   Serial.println("board configured...");
 }
 
+int beat=0; 
 void loop()
 {
+  beat++; 
+  if (beat%1000000==0)     Serial.println("heartbeat..."); 
+
   if (is_reading) {
+    beat=0;
     is_reading = false;
     // wait for signals to rise
     delayMicroseconds(400);
 
-    //Check that Currently Reading State is opposite of Last Read State (HIGH vs. LOW)
-    bool state = digitalRead(TRIG[trig_source]);
+   //Check that Currently Reading State is opposite of Last Read State (HIGH vs. LOW)
+    bool state = digitalRead(TRIGf[trig_source]);
 
     if (state == last_read_state) { return; }
-
-    last_read_state = state;
+    else                          { last_read_state = state;}
     digitalWrite(LED[0], state);
     digitalWrite(LED[1], state);
 
@@ -97,7 +93,7 @@ void loop()
         sum_high[ipsd] = sum_high[ipsd] + data[ipsd];
       }
 
-      // Accumulate values for low state
+//      // Accumulate values for low state
       else if (state == LOW && count_low[ipsd] < NSAMPLES) {
         count_low[ipsd] += 1;
         sum_low[ipsd]    = sum_low[ipsd] + data[ipsd];
@@ -114,18 +110,25 @@ void loop()
       positionMeasurement difference;
 
       for (int ipsd = 0; ipsd < 2; ipsd++) {
+        sum_high[ipsd] = sum_high[ipsd] / NSAMPLES; 
+        sum_low [ipsd] = sum_low [ipsd] / NSAMPLES; 
+        
         difference = (sum_high[ipsd] - sum_low[ipsd]); 
-      
-        sprintf(msg, "%1i: % 6.4f % 6.4f", ipsd, voltage(double(difference.x2-difference.x1))/voltage(double(difference.x2+difference.x1)), voltage(double(difference.y2-difference.y1))/voltage(double(difference.y2+difference.y1)));
-        Serial.println(msg);
+
+        /* Calculated Output */
+        //sprintf(msg, "%1i: % 6.4f % 6.4f", ipsd, voltage(double(difference.x2-difference.x1))/voltage(double(difference.x2+difference.x1)), voltage(double(difference.y2-difference.y1))/voltage(double(difference.y2+difference.y1)));
+        //Serial.println(msg);
 
         //sprintf(msg, "%1i: % 6.4f % 6.4f", ipsd, voltage(difference.x()), voltage(difference.y());
         //Serial.println(msg);
 
-        //sprintf(msg, "%1i high: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f", ipsd, voltage(sum_high[ipsd].x1), voltage(sum_high[ipsd].x2), voltage(sum_high[ipsd].y1), voltage(sum_high[ipsd].y2));
-        //Serial.println(msg);
-        //sprintf(msg, "%1i  low: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f", ipsd, voltage(sum_low[ipsd].x1), voltage(sum_low[ipsd].x2), voltage(sum_low[ipsd].y1), voltage(sum_low[ipsd].y2));
-        //Serial.println(msg);
+        /* Verbose Output */
+        sprintf(msg, "%1i high: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f", ipsd, voltage(sum_high[ipsd].x1), voltage(sum_high[ipsd].x2), voltage(sum_high[ipsd].y1), voltage(sum_high[ipsd].y2));
+        Serial.println(msg);
+        sprintf(msg, "%1i  low: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f", ipsd, voltage(sum_low[ipsd].x1), voltage(sum_low[ipsd].x2), voltage(sum_low[ipsd].y1), voltage(sum_low[ipsd].y2));
+        Serial.println(msg);
+        sprintf(msg, "temp: %4.1f", readTemperature()); 
+        Serial.println(msg); 
       }
 
       /* reset */
@@ -137,72 +140,76 @@ void loop()
   }
 }
 
-static const int PSD_PIN [2][4] = {
-  {0, 1, 2, 3},
-  {4, 5, 6, 7}
-};
-
-double voltage (int dac_counts) {
-    return (dac_counts * (3.3/4095)/NSAMPLES); 
-}
+float voltage (int dac_counts) {
+    return ((VREF*dac_counts)/(4095));
+ }
 
 void readSensor(int ipsd, positionMeasurement &data)
 {
-  data.x1     = analogRead(PSD_PIN[ipsd][0]);
-  data.x2     = analogRead(PSD_PIN[ipsd][1]);
-  data.y1     = analogRead(PSD_PIN[ipsd][2]);
-  data.y2     = analogRead(PSD_PIN[ipsd][3]);
+  data.x1 = analogRead(PSD_PIN[ipsd][0]);
+  data.x2 = analogRead(PSD_PIN[ipsd][1]);
+  data.y1 = analogRead(PSD_PIN[ipsd][2]);
+  data.y2 = analogRead(PSD_PIN[ipsd][3]);
 }
 
 /* Pin Change Interrupt Routines */
-void interrupt0() { if (!is_reading) { trig_source = 0; interrupt(); }}
-void interrupt1() { if (!is_reading) { trig_source = 1; interrupt(); }}
-void interrupt2() { if (!is_reading) { trig_source = 2; interrupt(); }}
-void interrupt3() { if (!is_reading) { trig_source = 3; interrupt(); }}
-void interrupt4() { if (!is_reading) { trig_source = 4; interrupt(); }}
-void interrupt5() { if (!is_reading) { trig_source = 5; interrupt(); }}
-void interrupt6() { if (!is_reading) { trig_source = 6; interrupt(); }}
-void interrupt7() { if (!is_reading) { trig_source = 7; interrupt(); }}
-void interrupt()  { if (!is_reading) { is_reading = true; }};
+void interruptA1() { if (TRIG_ENABLE[0]) {trig_source = 0; interrupt();}}
+void interruptA2() { if (TRIG_ENABLE[1]) {trig_source = 1; interrupt();}}
+void interruptA3() { if (TRIG_ENABLE[2]) {trig_source = 2; interrupt();}}
+void interruptA4() { if (TRIG_ENABLE[3]) {trig_source = 3; interrupt();}}
+void interruptB1() { if (TRIG_ENABLE[4]) {trig_source = 4; interrupt();}}
+void interruptB2() { if (TRIG_ENABLE[5]) {trig_source = 5; interrupt();}}
+void interruptB3() { if (TRIG_ENABLE[6]) {trig_source = 6; interrupt();}}
+void interruptB4() { if (TRIG_ENABLE[7]) {trig_source = 7; interrupt();}}
+
+void interrupt()   { if (!is_reading)    {is_reading = true;           }};
 
 float readTemperature() {
-    int temp = analogRead(9); 
-    float voltage = temp / 3.3 * (4095); // 3.3V ref, 12 bits
-    float temperature = (voltage-0.424)/0.00625;  // conferre the LM60 data sheet
+    int   temp        = analogRead(9); 
+    float voltage     = (temp * VREF) /((1<<12)-1); 
+    float temperature = (voltage-0.424)/0.00625;  // conferre the LM60 data sheet for the origin of these magic numbers
     return temperature; 
 }
 
-void configureDACs ()
-{
-  for (int i=0; i<2; i++) {
-    setDAC(i, 7780);  // 4.867V. Output voltage = 3.3+3.3*(7780/16383)
-    analogWrite(i, 612);     // Set Comparator Threshold for 12-bits at 3.3VREF
-  }
+void configureBoard () {
+    analogReadResolution(12);
+    analogWriteResolution(12);
+    float VTHRESH = 0.5;  
+    analogWrite(DAC0, VTHRESH/VREF * ((1<<12)-1)); 
+    analogWrite(DAC1, VTHRESH/VREF * ((1<<12)-1)); 
+
+    /* Set OAVCC by DAC; Currently, OAVCC is hardwired. Programmable voltage 
+     * requires hardware modification! 
+     * setDAC(0, 0.5/VREF * ((1<<14)-1) );  
+     * setDAC(1, 0.5/VREF * ((1<<14)-1) );
+     */
+
+    // Configure Trigger Interrupt
+    for (int i=0; i<2; i++) {
+        for (int j=0; j<4; j++) {
+            pinMode     (TRIG[i][j], INPUT); 
+            digitalWrite(TRIG[i][j],  HIGH); 
+        }
+    }
+
+  attachInterrupt(TRIG[0][0], interruptA1, CHANGE);
+  attachInterrupt(TRIG[0][1], interruptA2, CHANGE);
+  attachInterrupt(TRIG[0][2], interruptA3, CHANGE);
+  attachInterrupt(TRIG[0][3], interruptA4, CHANGE);
+  attachInterrupt(TRIG[1][0], interruptB1, CHANGE);
+  attachInterrupt(TRIG[1][1], interruptB2, CHANGE);
+  attachInterrupt(TRIG[1][2], interruptB3, CHANGE);
+  attachInterrupt(TRIG[1][3], interruptB4, CHANGE);
+
+  // Configure DAC Chip Select
+  pinMode(43, OUTPUT);
+  digitalWrite(43, HIGH);
+
+  /* Turn off LED */
+  pinMode(LED[0], OUTPUT);
+  digitalWrite(LED[0], LOW);
+
+  pinMode(LED[1], OUTPUT);
+  digitalWrite(LED[1], LOW);
 }
 
-void configurePinModes () {
-  /* Configure Trigger Interrupts */
-  for (int i=0; i<8; i++) {
-      pinMode(TRIG[i], INPUT);                    
-      digitalWrite(TRIG[0], HIGH);
-  }
-
-  attachInterrupt(TRIG[0], interrupt0, CHANGE);
-  attachInterrupt(TRIG[1], interrupt1, CHANGE); 
-  attachInterrupt(TRIG[2], interrupt2, CHANGE); 
-  attachInterrupt(TRIG[3], interrupt3, CHANGE); 
-  attachInterrupt(TRIG[4], interrupt4, CHANGE); 
-  attachInterrupt(TRIG[5], interrupt5, CHANGE);
-  attachInterrupt(TRIG[6], interrupt6, CHANGE); 
-  attachInterrupt(TRIG[7], interrupt7, CHANGE); 
-
-  /* DAC Chip Select */
-  pinMode(DAC_CS, OUTPUT);
-  digitalWrite(DAC_CS, HIGH);
-
-  /* LEDs */
-  pinMode(LED1, OUTPUT);
-  digitalWrite(LED2, LOW);
-  pinMode(LED2, OUTPUT);
-  digitalWrite(LED2, LOW);
-}

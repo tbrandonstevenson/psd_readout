@@ -1,9 +1,9 @@
 struct positionMeasurement {
 
-    int x1 = 0;
-    int x2 = 0;
-    int y1 = 0;
-    int y2 = 0;
+    double x1 = 0;
+    double x2 = 0;
+    double y1 = 0;
+    double y2 = 0;
 
     double x()
     {

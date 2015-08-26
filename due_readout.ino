@@ -116,19 +116,19 @@ void loop()
         difference = (sum_high[ipsd] - sum_low[ipsd]); 
 
         /* Calculated Output */
-        //sprintf(msg, "%1i: % 6.4f % 6.4f", ipsd, voltage(double(difference.x2-difference.x1))/voltage(double(difference.x2+difference.x1)), voltage(double(difference.y2-difference.y1))/voltage(double(difference.y2+difference.y1)));
-        //Serial.println(msg);
+        sprintf(msg, "%1i: % 6.4f % 6.4f", ipsd, voltage(double(difference.x2-difference.x1))/voltage(double(difference.x2+difference.x1)), voltage(double(difference.y2-difference.y1))/voltage(double(difference.y2+difference.y1)));
+        Serial.println(msg);
 
         //sprintf(msg, "%1i: % 6.4f % 6.4f", ipsd, voltage(difference.x()), voltage(difference.y());
         //Serial.println(msg);
 
         /* Verbose Output */
-        sprintf(msg, "%1i high: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f", ipsd, voltage(sum_high[ipsd].x1), voltage(sum_high[ipsd].x2), voltage(sum_high[ipsd].y1), voltage(sum_high[ipsd].y2));
-        Serial.println(msg);
-        sprintf(msg, "%1i  low: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f", ipsd, voltage(sum_low[ipsd].x1), voltage(sum_low[ipsd].x2), voltage(sum_low[ipsd].y1), voltage(sum_low[ipsd].y2));
-        Serial.println(msg);
-        sprintf(msg, "temp: %4.1f", readTemperature()); 
-        Serial.println(msg); 
+//        sprintf(msg, "%1i high: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f", ipsd, voltage(sum_high[ipsd].x1), voltage(sum_high[ipsd].x2), voltage(sum_high[ipsd].y1), voltage(sum_high[ipsd].y2));
+//        Serial.println(msg);
+//        sprintf(msg, "%1i  low: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f", ipsd, voltage(sum_low[ipsd].x1), voltage(sum_low[ipsd].x2), voltage(sum_low[ipsd].y1), voltage(sum_low[ipsd].y2));
+//        Serial.println(msg);
+//        sprintf(msg, "temp: %4.1f", readTemperature()); 
+//        Serial.println(msg); 
       }
 
       /* reset */

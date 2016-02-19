@@ -76,6 +76,16 @@ struct positionMeasurement {
         return pos;
     }
 
+    friend positionMeasurement operator* (const positionMeasurement &c1, const positionMeasurement &c2)
+    {
+        positionMeasurement pos;
+        pos.x1 = c1.x1 * c2.x1;
+        pos.x2 = c1.x2 * c2.x2;
+        pos.y1 = c1.y1 * c2.y1;
+        pos.y2 = c1.y2 * c2.y2;
+        return pos;
+    }
+
 
     positionMeasurement & operator= (const positionMeasurement &c1)
     {

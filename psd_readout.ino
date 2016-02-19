@@ -11,7 +11,7 @@ static const int    TRIGf   [8]    = { 41, 50, 34, 39 ,  36, 37, 38, 40 };
 static const int    TRIG_ENABLE [8] = {1,  1,  1,  1,  1,  1,  1,  1}; 
 
 static const int    NSAMPLES = 500;         // Total number of samples to accumulate before printing measurement 
-static const int    NSAMPLES_PER_CYCLE = 6; // Number of samples to take in a duty cycle 
+static const int    NSAMPLES_PER_CYCLE = 5; // Number of samples to take in a duty cycle 
 
 static const float  VREF = 2.5f;  // Analog Voltage Reference
 

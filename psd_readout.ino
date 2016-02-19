@@ -210,8 +210,8 @@ void loop()
   }
 }
 
-float voltage (float dac_counts) {
-    return ((VREF*dac_counts)/(2*4095));
+float voltage (float adc_counts) {
+    return ((VREF*adc_counts)/(2*4095)); // factor of 2 is because the amplifier has gain of 2 !!
  }
 
 void readSensor(int ipsd, positionMeasurement &data)

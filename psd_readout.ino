@@ -61,16 +61,26 @@ void loop()
 {
   if (debug) {
     beat++; 
-    if (beat%1000000==0)     
-    Serial.println("heartbeat..."); 
+    if (beat%1000000==0) {
+	    is_reading = 0; 
+	    Serial.println("heartbeat..."); 
+	    positionMeasurement debug_data [2];
+	    readSensor(0, debug_data[0]); 
+	    readSensor(1, debug_data[1]); 
+	    /* Verbose Output */
+	    sprintf(msg, "0: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f temp:%4.1f", voltage(debug_data[0].x1), voltage(debug_data[0].x2), voltage(debug_data[0].y1), voltage(debug_data[0].y2), readTemperature());
+	    Serial.println(msg);
+	    sprintf(msg, "1: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f temp:%4.1f", voltage(debug_data[1].x1), voltage(debug_data[1].x2), voltage(debug_data[1].y1), voltage(debug_data[1].y2), readTemperature());
+	    Serial.println(msg);
+    }
   }
 
   if (Serial.available() > 0) {
       char byteIn = Serial.read(); 
-      if      (byteIn == 'd') debug = 1; 
-      else if (byteIn == 'n') debug = 0; 
+      if      (byteIn == 'd') debug = !debug; 
   }
-  else if (is_reading) {
+  //else if (is_reading) {
+  else {
     beat=0;
     is_reading = false;
     // wait for signals to rise

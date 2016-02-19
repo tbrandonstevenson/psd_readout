@@ -170,21 +170,30 @@ void loop()
           float xb = voltage(difference[1].x2-difference[1].x1)/voltage(difference[1].x2+difference[1].x1);
           float yb = voltage(difference[1].y2-difference[1].y1)/voltage(difference[1].y2+difference[1].y1);
 
+	  float min_diff = 0.10; 
+	  if (    voltage(difference[0].x1) < min_diff 
+               || voltage(difference[0].x2) < min_diff
+               || voltage(difference[0].y1) < min_diff
+               || voltage(difference[0].y2) < min_diff )  {
+		xa = 999.; 
+		ya = 999.; 
+	  }
+
+	  if (    voltage(difference[1].x1) < min_diff 
+               || voltage(difference[1].x2) < min_diff
+               || voltage(difference[1].y1) < min_diff
+               || voltage(difference[1].y2) < min_diff )  {
+		xb = 999.; 
+		yb = 999.; 
+	  }
+		
+
           // Handle Cases of NAN
           if (xa != xa) xa = 999.;
           if (ya != ya) ya = 999.;
           if (xb != xb) xb = 999.;
           if (yb != yb) yb = 999.; 
 
-          // Handle Cases Where Only One of the PSDs was triggered
-          if (!enableA) {
-            xa = 999.;
-            ya = 999.;}
-          if (!enableB) {
-            xb = 999.;
-            yb = 999.;
-          }
-        
           sprintf(msg, "% 9.5f % 9.5f % 9.5f % 9.5f % 5.2f", xa,ya,xb,yb, readTemperature());
           Serial.println(msg);
       }
@@ -213,18 +222,6 @@ void readSensor(int ipsd, positionMeasurement &data)
   data.y2 = analogRead(PSD_PIN[ipsd][3]);
 }
 
-/* Pin Change Interrupt Routines */
-void interruptA1() { if (TRIG_ENABLE[0]) {trig_source = 0; enableA=true; interrupt();}}
-void interruptA2() { if (TRIG_ENABLE[1]) {trig_source = 1; enableA=true; interrupt();}}
-void interruptA3() { if (TRIG_ENABLE[2]) {trig_source = 2; enableA=true; interrupt();}}
-void interruptA4() { if (TRIG_ENABLE[3]) {trig_source = 3; enableA=true; interrupt();}}
-void interruptB1() { if (TRIG_ENABLE[4]) {trig_source = 4; enableB=true; interrupt();}}
-void interruptB2() { if (TRIG_ENABLE[5]) {trig_source = 5; enableB=true; interrupt();}}
-void interruptB3() { if (TRIG_ENABLE[6]) {trig_source = 6; enableB=true; interrupt();}}
-void interruptB4() { if (TRIG_ENABLE[7]) {trig_source = 7; enableB=true; interrupt();}}
-
-void interrupt()   { if (!is_reading)    {is_reading = true;}};
-
 float readTemperature() {
     int temp_measurements = 25; 
     double temperature_sum=0; 
@@ -238,34 +235,7 @@ float readTemperature() {
 }
 
 void configureBoard () {
-    analogReadResolution(12);
-    analogWriteResolution(12);
-    float VTHRESH = 0.5;  
-    analogWrite(DAC0, VTHRESH/VREF * ((1<<12)-1)); 
-    analogWrite(DAC1, VTHRESH/VREF * ((1<<12)-1)); 
-
-    /* Set OAVCC by DAC; Currently, OAVCC is hardwired. Programmable voltage 
-     * requires hardware modification! 
-     * setDAC(0, 0.5/VREF * ((1<<14)-1) );  
-     * setDAC(1, 0.5/VREF * ((1<<14)-1) );
-     */
-
-    // Configure Trigger Interrupt
-    for (int i=0; i<2; i++) {
-        for (int j=0; j<4; j++) {
-            pinMode     (TRIG[i][j], INPUT); 
-            digitalWrite(TRIG[i][j],  HIGH); 
-        }
-    }
-
-  attachInterrupt(TRIG[0][0], interruptA1, CHANGE);
-  attachInterrupt(TRIG[0][1], interruptA2, CHANGE);
-  attachInterrupt(TRIG[0][2], interruptA3, CHANGE);
-  attachInterrupt(TRIG[0][3], interruptA4, CHANGE);
-  attachInterrupt(TRIG[1][0], interruptB1, CHANGE);
-  attachInterrupt(TRIG[1][1], interruptB2, CHANGE);
-  attachInterrupt(TRIG[1][2], interruptB3, CHANGE);
-  attachInterrupt(TRIG[1][3], interruptB4, CHANGE);
+  analogReadResolution(12);
 
   // Configure DAC Chip Select
   pinMode(43, OUTPUT);

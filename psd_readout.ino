@@ -33,7 +33,6 @@ positionMeasurement sum_low [2];
 
 bool  pinstate = 0;
 bool debug = 0;
-int threshold = 820; 
 
 positionMeasurement voltage_high;
 positionMeasurement voltage_low ;
@@ -98,15 +97,11 @@ void loop()
       sum[ipsd] = sum[ipsd] + data[ipsd];
     }
 
-    bool state=0; 
-    for (int i=0; i<8; i++) {
-     state |= digitalRead(TRIGf[i]);
-    }
-   
+    int threshold = 400; 
+    bool state = 0; 
     for (int ipsd = 0; ipsd < 2; ipsd++) {
       data[ipsd] = sum[ipsd] / NSAMPLES_PER_CYCLE;
 
-      bool state=0; 
       for (int i=0; i<2; i++) {
         state |= data[ipsd].x1 > threshold; 
         state |= data[ipsd].x2 > threshold;

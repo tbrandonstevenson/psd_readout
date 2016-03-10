@@ -2,10 +2,15 @@
 #include "dac_write.h"
 #include "position_measurement.h"
 
+//static const int SERIAL_NO = 0; 
+static const int SERIAL_NO = 1; 
+
 static const int    LED     [2]    = { 24, 25 };
 static const int    PSD_PIN [2][4] = {{ 0,  1,  2,  3}, { 4,  5,  6,  7}};
 static const int    TRIG    [2][4] = {{41, 50, 34, 39}, {36, 37, 38, 40}}; 
 static const int    TRIGf   [8]    = { 41, 50, 34, 39 ,  36, 37, 38, 40 }; 
+
+static const int    GAIN[2][2]    = {{2,2},{1, 4}}; 
 
                                      //A1, A2, A3, A4, B1, B2, B3, B4
 static const int    TRIG_ENABLE [8] = {1,  1,  1,  1,  1,  1,  1,  1}; 
@@ -81,9 +86,19 @@ void loop()
 	    readSensor(0, debug_data[0]); 
 	    readSensor(1, debug_data[1]); 
 	    /* Verbose Output */
-	    sprintf(msg, "0: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f temp:%4.1f", voltage(debug_data[0].x1), voltage(debug_data[0].x2), voltage(debug_data[0].y1), voltage(debug_data[0].y2), readTemperature());
+	    sprintf(msg, "0: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f temp:%4.1f", 
+		voltage(debug_data[0].x1, 0), 
+		voltage(debug_data[0].x2, 0), 
+		voltage(debug_data[0].y1, 0), 
+		voltage(debug_data[0].y2, 0), 
+		readTemperature());
 	    Serial.println(msg);
-	    sprintf(msg, "1: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f temp:%4.1f", voltage(debug_data[1].x1), voltage(debug_data[1].x2), voltage(debug_data[1].y1), voltage(debug_data[1].y2), readTemperature());
+	    sprintf(msg, "1: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f temp:%4.1f", 
+		voltage(debug_data[1].x1, 1), 
+		voltage(debug_data[1].x2, 1), 
+		voltage(debug_data[1].y1, 1), 
+		voltage(debug_data[1].y2, 1), 
+		readTemperature());
 	    Serial.println(msg);
     }
   }
@@ -112,7 +127,7 @@ void loop()
       sum[ipsd] = sum[ipsd] + data[ipsd];
     }
 
-    int threshold = 400; 
+    int threshold = 800; 
     bool state = 0; 
     for (int ipsd = 0; ipsd < 2; ipsd++) {
       for (int i=0; i<2; i++) {
@@ -218,47 +233,48 @@ void loop()
              
                   /* Verbose Output */
                   sprintf(msg, "%1i high: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f temp:%4.1f", ipsd, 
-            		voltage(mean_high[ipsd].x1),
-            		voltage(mean_high[ipsd].x2),
-            		voltage(mean_high[ipsd].y1),
-            		voltage(mean_high[ipsd].y2),
+            		voltage(mean_high[ipsd].x1, ipsd),
+            		voltage(mean_high[ipsd].x2, ipsd),
+            		voltage(mean_high[ipsd].y1, ipsd),
+            		voltage(mean_high[ipsd].y2, ipsd),
             		readTemperature());
                   Serial.println(msg);
 
                   sprintf(msg, "           %6.4f    %6.4f    %6.4f    %6.4f",
-            		voltage(sqrt(var_high[ipsd].x1)),
-            		voltage(sqrt(var_high[ipsd].x2)),
-            		voltage(sqrt(var_high[ipsd].y1)),
-            		voltage(sqrt(var_high[ipsd].y2))); 
+            		voltage(sqrt(var_high[ipsd].x1), ipsd),
+            		voltage(sqrt(var_high[ipsd].x2), ipsd),
+            		voltage(sqrt(var_high[ipsd].y1), ipsd),
+            		voltage(sqrt(var_high[ipsd].y2), ipsd)); 
                   Serial.println(msg);
 
                   sprintf(msg, "   low: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f temp:%4.1f",
-            		voltage(mean_low[ipsd].x1),
-            		voltage(mean_low[ipsd].x2),
-            		voltage(mean_low[ipsd].y1),
-            		voltage(mean_low[ipsd].y2), 
+            		voltage(mean_low[ipsd].x1, ipsd),
+            		voltage(mean_low[ipsd].x2, ipsd),
+            		voltage(mean_low[ipsd].y1, ipsd),
+            		voltage(mean_low[ipsd].y2, ipsd), 
             		readTemperature());
                   Serial.println(msg);
 
                   sprintf(msg, "           %6.4f    %6.4f    %6.4f    %6.4f",
-            		voltage(sqrt(var_low[ipsd].x1)),
-            		voltage(sqrt(var_low[ipsd].x2)),
-            		voltage(sqrt(var_low[ipsd].y1)),
-            		voltage(sqrt(var_low[ipsd].y2))); 
+            		voltage(sqrt(var_low[ipsd].x1), ipsd),
+            		voltage(sqrt(var_low[ipsd].x2), ipsd),
+            		voltage(sqrt(var_low[ipsd].y1), ipsd),
+            		voltage(sqrt(var_low[ipsd].y2), ipsd)); 
                   Serial.println(msg);
 
                   sprintf(msg, "  stddev : %6.4f    %6.4f    %6.4f    %6.4f",
-            		voltage(stddev[ipsd].x1),
-            		voltage(stddev[ipsd].x2),
-            		voltage(stddev[ipsd].y1),
-            		voltage(stddev[ipsd].y2)); 
+            		voltage(stddev[ipsd].x1, ipsd),
+            		voltage(stddev[ipsd].x2, ipsd),
+            		voltage(stddev[ipsd].y1, ipsd),
+            		voltage(stddev[ipsd].y2, ipsd)); 
                   Serial.println(msg);
 
 
   
                   /* Calculated Output */
-                  sprintf(msg, "%1i x: % 6.4f y: % 6.4f", ipsd, voltage(double(difference[ipsd].x2-difference[ipsd].x1))/voltage(double(difference[ipsd].x2+difference[ipsd].x1)), 
-                                                           voltage(double(difference[ipsd].y2-difference[ipsd].y1))/voltage(double(difference[ipsd].y2+difference[ipsd].y1)));
+                  sprintf(msg, "%1i x: % 6.4f y: % 6.4f", ipsd, 
+			(double(difference[ipsd].x2-difference[ipsd].x1))/(double(difference[ipsd].x2+difference[ipsd].x1)), 
+                        (double(difference[ipsd].y2-difference[ipsd].y1))/(double(difference[ipsd].y2+difference[ipsd].y1)));
                   Serial.println(msg);
               } 
             }
@@ -268,24 +284,24 @@ void loop()
               difference [0] = (sum_high[0] - sum_low[0]);
               difference [1] = (sum_high[1] - sum_low[1]);
 
-              float xa = voltage(difference[0].x2-difference[0].x1)/voltage(difference[0].x2+difference[0].x1);
-              float ya = voltage(difference[0].y2-difference[0].y1)/voltage(difference[0].y2+difference[0].y1);
-              float xb = voltage(difference[1].x2-difference[1].x1)/voltage(difference[1].x2+difference[1].x1);
-              float yb = voltage(difference[1].y2-difference[1].y1)/voltage(difference[1].y2+difference[1].y1);
+              float xa = (difference[0].x2-difference[0].x1)/(difference[0].x2+difference[0].x1);
+              float ya = (difference[0].y2-difference[0].y1)/(difference[0].y2+difference[0].y1);
+              float xb = (difference[1].x2-difference[1].x1)/(difference[1].x2+difference[1].x1);
+              float yb = (difference[1].y2-difference[1].y1)/(difference[1].y2+difference[1].y1);
 
               float min_diff = 0.10; 
-              if (    voltage(difference[0].x1) < min_diff 
-                   || voltage(difference[0].x2) < min_diff
-                   || voltage(difference[0].y1) < min_diff
-                   || voltage(difference[0].y2) < min_diff )  {
+              if (    voltage(difference[0].x1, 0) < min_diff 
+                   || voltage(difference[0].x2, 0) < min_diff
+                   || voltage(difference[0].y1, 0) < min_diff
+                   || voltage(difference[0].y2, 0) < min_diff )  {
             	xa = 999.; 
             	ya = 999.; 
               }
 
-              if (    voltage(difference[1].x1) < min_diff 
-                   || voltage(difference[1].x2) < min_diff
-                   || voltage(difference[1].y1) < min_diff
-                   || voltage(difference[1].y2) < min_diff )  {
+              if (    voltage(difference[1].x1, 1) < min_diff 
+                   || voltage(difference[1].x2, 1) < min_diff
+                   || voltage(difference[1].y1, 1) < min_diff
+                   || voltage(difference[1].y2, 1) < min_diff )  {
             	xb = 999.; 
             	yb = 999.; 
               }
@@ -326,8 +342,8 @@ void loop()
   }
 }
 
-float voltage (float adc_counts) {
-    return ((VREF*adc_counts)/(2*4095)); // factor of 2 is because the amplifier has gain of 2 !!
+float voltage (float adc_counts, int ipsd) {
+    return ((VREF*adc_counts)/(GAIN[SERIAL_NO][ipsd]*4095)); // factor of 2 is because the amplifier has gain of 2 !!
  }
 
 void readSensor(int ipsd, positionMeasurement &data)

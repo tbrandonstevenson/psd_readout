@@ -411,15 +411,20 @@ float readTemperature() {
 }
 
 void analogWriteVoltage (float voltage, int ipsd) { 
+    // TODO: voltage should range between ~0.13 and 0.6875  
+
     float vref = VREF;  // 2.5V
     float attenuation = DAC_ATTENUATION[SERIAL_NO]; 
 
     // the atsam3x8e processor has a DAC output voltage range that varies between 1/6 and 5/6 of VREF; 
     // on one PSD, at least, that voltage is decreased by an additional factor of ~1/3 (or more closely 0.325)
-    int dac_counts = (voltage-1/6*vref*attenuation)*((1<<12)-1)/(4/6*vref*attenuation); 
+    int dac_counts = (voltage-1.0/6.0*vref*attenuation)*((1<<12)-1)/(4.0/6.0*vref*attenuation); 
 
     uint32_t dac_pin [2] = {DAC0, DAC1}; 
+
     analogWrite (dac_pin[ipsd], dac_counts); 
+    sprintf(msg, "Writing analog threshold to DAC%i: %i, %f", ipsd, dac_counts, voltage); 
+    Serial.println(msg);
 }
 
 void configureBoard () {
@@ -428,8 +433,8 @@ void configureBoard () {
     analogWriteResolution(12);
 
     // Set Threshold Voltages
-    analogWriteVoltage(0.25, 0); 
-    analogWriteVoltage(0.25, 1); 
+    analogWriteVoltage(0.15, 0); 
+    analogWriteVoltage(0.15, 1); 
 
     // Configure Trigger Interrupt
     for (int i=0; i<2; i++) {

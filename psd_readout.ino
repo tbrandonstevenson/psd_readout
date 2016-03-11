@@ -10,7 +10,8 @@ static const int    PSD_PIN [2][4] = {{ 0,  1,  2,  3}, { 4,  5,  6,  7}};
 static const int    TRIG    [2][4] = {{41, 50, 34, 39}, {36, 37, 38, 40}}; 
 static const int    TRIGf   [8]    = { 41, 50, 34, 39 ,  36, 37, 38, 40 }; 
 
-static const int    GAIN[2][2]    = {{2,2},{1, 4}}; 
+static const int    GAIN[2][2]         = {{2,2},{1, 4}};  // per channel gain of each PSD
+static const float  DAC_ATTENUATION[2] = {1.0,0.325}; // attenuation value applied to the threshold comparator DACs
 
                                      //A1, A2, A3, A4, B1, B2, B3, B4
 static const int    TRIG_ENABLE [8] = {1,  1,  1,  1,  1,  1,  1,  1}; 
@@ -19,6 +20,7 @@ static const int    NSAMPLES = 500;         // Total number of samples to accumu
 static const int    NSAMPLES_PER_CYCLE = 3; // Number of samples to take in a duty cycle 
 
 static const float  VREF = 2.5f;  // Analog Voltage Reference
+
 
 char msg [110];
 bool last_read_state;
@@ -82,23 +84,26 @@ void loop()
     if (beat%1000000==0) {
 	    is_reading = 0; 
 	    Serial.println("heartbeat..."); 
+
 	    positionMeasurement debug_data [2];
+
 	    readSensor(0, debug_data[0]); 
 	    readSensor(1, debug_data[1]); 
-	    /* Verbose Output */
+
 	    sprintf(msg, "0: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f temp:%4.1f", 
-		voltage(debug_data[0].x1, 0), 
-		voltage(debug_data[0].x2, 0), 
-		voltage(debug_data[0].y1, 0), 
-		voltage(debug_data[0].y2, 0), 
-		readTemperature());
+            voltage(debug_data[0].x1, 0), 
+            voltage(debug_data[0].x2, 0), 
+            voltage(debug_data[0].y1, 0), 
+            voltage(debug_data[0].y2, 0), 
+            readTemperature());
 	    Serial.println(msg);
+
 	    sprintf(msg, "1: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f temp:%4.1f", 
-		voltage(debug_data[1].x1, 1), 
-		voltage(debug_data[1].x2, 1), 
-		voltage(debug_data[1].y1, 1), 
-		voltage(debug_data[1].y2, 1), 
-		readTemperature());
+            voltage(debug_data[1].x1, 1), 
+            voltage(debug_data[1].x2, 1), 
+            voltage(debug_data[1].y1, 1), 
+            voltage(debug_data[1].y2, 1), 
+            readTemperature());
 	    Serial.println(msg);
     }
   }
@@ -127,14 +132,14 @@ void loop()
       sum[ipsd] = sum[ipsd] + data[ipsd];
     }
 
-    int threshold = 800; 
+    float analog_threshold = 0.3; 
     bool state = 0; 
     for (int ipsd = 0; ipsd < 2; ipsd++) {
       for (int i=0; i<2; i++) {
-        state |= data[ipsd].x1 > threshold; 
-        state |= data[ipsd].x2 > threshold;
-        state |= data[ipsd].y1 > threshold; 
-        state |= data[ipsd].y2 > threshold; 
+        state |= voltage(data[ipsd].x1, ipsd) > analog_threshold; 
+        state |= voltage(data[ipsd].x2, ipsd) > analog_threshold;
+        state |= voltage(data[ipsd].y1, ipsd) > analog_threshold; 
+        state |= voltage(data[ipsd].y2, ipsd) > analog_threshold; 
       }
     }
 
@@ -268,13 +273,11 @@ void loop()
             		voltage(stddev[ipsd].y1, ipsd),
             		voltage(stddev[ipsd].y2, ipsd)); 
                   Serial.println(msg);
-
-
   
                   /* Calculated Output */
                   sprintf(msg, "%1i x: % 6.4f y: % 6.4f", ipsd, 
-			(double(difference[ipsd].x2-difference[ipsd].x1))/(double(difference[ipsd].x2+difference[ipsd].x1)), 
-                        (double(difference[ipsd].y2-difference[ipsd].y1))/(double(difference[ipsd].y2+difference[ipsd].y1)));
+                    ((difference[ipsd].x2-difference[ipsd].x1))/((difference[ipsd].x2+difference[ipsd].x1)), 
+                    ((difference[ipsd].y2-difference[ipsd].y1))/((difference[ipsd].y2+difference[ipsd].y1)));
                   Serial.println(msg);
               } 
             }
@@ -305,7 +308,6 @@ void loop()
             	xb = 999.; 
             	yb = 999.; 
               }
-            	
 
               // Handle Cases of NAN
               if (xa != xa) xa = 999.;
@@ -333,10 +335,10 @@ void loop()
           count_low[ipsd] = 0; 
           count_high[ipsd] = 0; 
 
-          sum_high[ipsd] = sum_high[ipsd]*0; 
-          sum_low[ipsd] = sum_low[ipsd]*0; 
-          sum_sq_high[ipsd] = sum_sq_high[ipsd]*0; 
-          sum_sq_low[ipsd] = sum_sq_low[ipsd]*0; 
+          sum_high[ipsd]     =  sum_high    [ipsd]*0;
+          sum_low[ipsd]      =  sum_low     [ipsd]*0;
+          sum_sq_high[ipsd]  =  sum_sq_high [ipsd]*0;
+          sum_sq_low[ipsd]   =  sum_sq_low  [ipsd]*0;
       }
     }
   }
@@ -378,13 +380,26 @@ float readTemperature() {
     return (temperature_sum/temp_measurements); 
 }
 
+void analogWriteVoltage (float voltage, int ipsd) { 
+    float vref = VREF;  // 2.5V
+    float attenuation = DAC_ATTENUATION[SERIAL_NO]; 
+
+    // the atsam3x8e processor has a DAC output voltage range that varies between 1/6 and 5/6 of VREF; 
+    // on one PSD, at least, that voltage is decreased by an additional factor of ~1/3 (or more closely 0.325)
+    int dac_counts = (voltage-1/6*vref*attenuation)*((1<<12)-1)/(4/6*vref*attenuation); 
+
+    uint32_t dac_pin [2] = {DAC0, DAC1}; 
+    analogWrite (dac_pin[ipsd], dac_counts); 
+}
+
 void configureBoard () {
 
     analogReadResolution(12);
     analogWriteResolution(12);
 
-    analogWrite(DAC0, 0); 
-    analogWrite(DAC1, 0); 
+    // Set Threshold Voltages
+    analogWriteVoltage(0.25, 0); 
+    analogWriteVoltage(0.25, 1); 
 
     // Configure Trigger Interrupt
     for (int i=0; i<2; i++) {

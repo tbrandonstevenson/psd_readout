@@ -33,8 +33,10 @@ volatile char trig_source = 0;
 void readSensor(int ipsd, positionMeasurement &data);
 
 
-bool  pinstate = 0;
+bool pinstate = 0;
+
 bool debug = 0;
+bool print_stddev = 0;
 
 positionMeasurement voltage_high;
 positionMeasurement voltage_low ;
@@ -111,6 +113,7 @@ void loop()
   if (Serial.available() > 0) {
       char byteIn = Serial.read(); 
       if      (byteIn == 'd') debug = !debug; 
+      if      (byteIn == 's') print_stddev = !print_stddev; 
   }
   else if (is_reading) {
     beat=0;
@@ -132,7 +135,7 @@ void loop()
       sum[ipsd] = sum[ipsd] + data[ipsd];
     }
 
-    float analog_threshold = 0.3; 
+    float analog_threshold = 0.20; 
     bool state = 0; 
     for (int ipsd = 0; ipsd < 2; ipsd++) {
       for (int i=0; i<2; i++) {
@@ -181,7 +184,7 @@ void loop()
     }
 
     if (finished_measuring) {
-      positionMeasurement difference [2] ;
+      positionMeasurement amplitude [2] ;
       positionMeasurement mean_high[2];
       positionMeasurement mean_low[2];
       positionMeasurement var_high[2];
@@ -201,41 +204,48 @@ void loop()
       double diffy2_1 = y2_max[1] - y2_min[1]; 
 
       double diffmax = 0; 
-      diffmax = max(diffx1_0,diffmax); 
-      diffmax = max(diffx2_0,diffmax); 
-      diffmax = max(diffy1_0,diffmax); 
-      diffmax = max(diffy2_0,diffmax); 
-      diffmax = max(diffx1_1,diffmax); 
-      diffmax = max(diffx2_1,diffmax); 
-      diffmax = max(diffy1_1,diffmax); 
-      diffmax = max(diffy2_1,diffmax); 
 
+      // update the maximum difference if the current is the largest
+      // we scale this by the GAIN of the channel to equalize ADC values
+      diffmax = max(diffx1_0/GAIN[SERIAL_NO][0],diffmax); 
+      diffmax = max(diffx2_0/GAIN[SERIAL_NO][0],diffmax); 
+      diffmax = max(diffy1_0/GAIN[SERIAL_NO][0],diffmax); 
+      diffmax = max(diffy2_0/GAIN[SERIAL_NO][0],diffmax); 
+      diffmax = max(diffx1_1/GAIN[SERIAL_NO][1],diffmax); 
+      diffmax = max(diffx2_1/GAIN[SERIAL_NO][1],diffmax); 
+      diffmax = max(diffy1_1/GAIN[SERIAL_NO][1],diffmax); 
+      diffmax = max(diffy2_1/GAIN[SERIAL_NO][1],diffmax); 
+
+      // TODO: change the diffmax_limit from one based on ADC counts to one
+      // based on post-gain voltages
       double diffmax_limit = 100; 
 
       if (diffmax < diffmax_limit)  {
+
+          for (int ipsd = 0; ipsd < 2; ipsd++) {
+               mean_high[ipsd] = sum_high[ipsd]/NSAMPLES; 
+               mean_low [ipsd] = sum_low [ipsd]/NSAMPLES; 
+               
+               amplitude [ipsd] = (mean_high[ipsd] - mean_low[ipsd]); 
+
+               var_high[ipsd] = (sum_sq_high[ipsd]/NSAMPLES-mean_high[ipsd]*mean_high[ipsd]); 
+               var_low[ipsd]  = ( sum_sq_low[ipsd]/NSAMPLES-mean_low [ipsd]*mean_low [ipsd]);
+
+               var[ipsd] = var_high[ipsd] + var_low[ipsd]; 
+
+               stddev[ipsd].x1 = sqrt(var[ipsd].x1); 
+               stddev[ipsd].x2 = sqrt(var[ipsd].x2); 
+               stddev[ipsd].y1 = sqrt(var[ipsd].y1); 
+               stddev[ipsd].y2 = sqrt(var[ipsd].y2); 
+          }
+
           if (debug) {
               for (int ipsd = 0; ipsd < 2; ipsd++) {
-                  sprintf(msg, "%f %f %f %f", x1_max[ipsd], x2_max[ipsd], y1_max[ipsd], y2_max[ipsd]); 
-                  Serial.println(msg);
-                  sprintf(msg, "%f %f %f %f", x1_min[ipsd], x2_min[ipsd], y1_min[ipsd], y2_min[ipsd]); 
-                  Serial.println(msg);
+                  // sprintf(msg, "%f %f %f %f", x1_max[ipsd], x2_max[ipsd], y1_max[ipsd], y2_max[ipsd]); 
+                  // Serial.println(msg);
+                  // sprintf(msg, "%f %f %f %f", x1_min[ipsd], x2_min[ipsd], y1_min[ipsd], y2_min[ipsd]); 
+                  // Serial.println(msg);
 
-                  // Take average of last NSAMPLES values
-                  mean_high[ipsd] = sum_high[ipsd]/NSAMPLES; 
-                  mean_low [ipsd] = sum_low [ipsd]/NSAMPLES; 
-                  
-                  difference [ipsd] = (mean_high[ipsd] - mean_low[ipsd]); 
-
-                  var_high[ipsd] = (sum_sq_high[ipsd]/NSAMPLES-mean_high[ipsd]*mean_high[ipsd]); 
-                  var_low[ipsd]  = ( sum_sq_low[ipsd]/NSAMPLES-mean_low [ipsd]*mean_low [ipsd]);
-
-                  var[ipsd] = var_high[ipsd] + var_low[ipsd]; 
-
-                  stddev[ipsd].x1 = sqrt(var[ipsd].x1); 
-                  stddev[ipsd].x2 = sqrt(var[ipsd].x2); 
-                  stddev[ipsd].y1 = sqrt(var[ipsd].y1); 
-                  stddev[ipsd].y2 = sqrt(var[ipsd].y2); 
-             
                   /* Verbose Output */
                   sprintf(msg, "%1i high: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f temp:%4.1f", ipsd, 
             		voltage(mean_high[ipsd].x1, ipsd),
@@ -276,47 +286,67 @@ void loop()
   
                   /* Calculated Output */
                   sprintf(msg, "%1i x: % 6.4f y: % 6.4f", ipsd, 
-                    ((difference[ipsd].x2-difference[ipsd].x1))/((difference[ipsd].x2+difference[ipsd].x1)), 
-                    ((difference[ipsd].y2-difference[ipsd].y1))/((difference[ipsd].y2+difference[ipsd].y1)));
+                    ((amplitude[ipsd].x2-amplitude[ipsd].x1))/((amplitude[ipsd].x2+amplitude[ipsd].x1)), 
+                    ((amplitude[ipsd].y2-amplitude[ipsd].y1))/((amplitude[ipsd].y2+amplitude[ipsd].y1)));
                   Serial.println(msg);
               } 
             }
 
             else {
-              
-              difference [0] = (sum_high[0] - sum_low[0]);
-              difference [1] = (sum_high[1] - sum_low[1]);
+              float x[2]; 
+              float y[2]; 
 
-              float xa = (difference[0].x2-difference[0].x1)/(difference[0].x2+difference[0].x1);
-              float ya = (difference[0].y2-difference[0].y1)/(difference[0].y2+difference[0].y1);
-              float xb = (difference[1].x2-difference[1].x1)/(difference[1].x2+difference[1].x1);
-              float yb = (difference[1].y2-difference[1].y1)/(difference[1].y2+difference[1].y1);
+              float x_err[2]; 
+              float y_err[2]; 
 
-              float min_diff = 0.10; 
-              if (    voltage(difference[0].x1, 0) < min_diff 
-                   || voltage(difference[0].x2, 0) < min_diff
-                   || voltage(difference[0].y1, 0) < min_diff
-                   || voltage(difference[0].y2, 0) < min_diff )  {
-            	xa = 999.; 
-            	ya = 999.; 
+              for (int ipsd=0; ipsd<2; ipsd++) {
+                  x[ipsd] = (amplitude[ipsd].x2-amplitude[ipsd].x1)/(amplitude[ipsd].x2+amplitude[ipsd].x1);
+                  y[ipsd] = (amplitude[ipsd].y2-amplitude[ipsd].y1)/(amplitude[ipsd].y2+amplitude[ipsd].y1);
+
+                  x_err[ipsd] = abs(x[ipsd]) * sqrt(
+                         (var[ipsd].x1+var[ipsd].x2)/sq((amplitude[ipsd].x1-amplitude[ipsd].x2)) + 
+                         (var[ipsd].x1+var[ipsd].x2)/sq((amplitude[ipsd].x1+amplitude[ipsd].x2))
+                  ); 
+                  y_err[ipsd] = abs(y[ipsd]) * sqrt(
+                         (var[ipsd].y1+var[ipsd].y2)/sq((amplitude[ipsd].y1-amplitude[ipsd].y2)) + 
+                         (var[ipsd].y1+var[ipsd].y2)/sq((amplitude[ipsd].y1+amplitude[ipsd].y2))
+                  ); 
+
+                  float min_diff = 0.10; 
+
+                  if (    voltage(amplitude[ipsd].x1, ipsd) < min_diff 
+                       || voltage(amplitude[ipsd].x2, ipsd) < min_diff
+                       || voltage(amplitude[ipsd].y1, ipsd) < min_diff
+                       || voltage(amplitude[ipsd].y2, ipsd) < min_diff )  {
+                    x[ipsd] = 999.; 
+                    y[ipsd] = 999.; 
+                  }
+
+                  // Handle Cases of NAN
+                  if (x[ipsd]!=x[ipsd] || y[ipsd]!=y[ipsd])  {
+                    x    [ipsd]=999.99999; 
+                    x_err[ipsd]=  9.99999; 
+                    y    [ipsd]=999.99999;
+                    y_err[ipsd]=  9.99999; 
+                  }
+                  if (x_err[ipsd]!=x_err[ipsd] || y_err[ipsd]!=y_err[ipsd])  {
+                    x_err[ipsd]=  9.99999; 
+                    y_err[ipsd]=  9.99999; 
+                  }
+
               }
 
-              if (    voltage(difference[1].x1, 1) < min_diff 
-                   || voltage(difference[1].x2, 1) < min_diff
-                   || voltage(difference[1].y1, 1) < min_diff
-                   || voltage(difference[1].y2, 1) < min_diff )  {
-            	xb = 999.; 
-            	yb = 999.; 
+              if (print_stddev)   {
+                  sprintf(msg, "% 9.5f % 9.5f % 9.5f % 9.5f % 7.5f % 7.5f % 7.5f % 7.5f % 5.2f", 
+                            x[0], y[0], x[1], y[1], x_err[0], y_err[0], x_err[1], y_err[1], 
+                            readTemperature());
+              }
+              else  {
+                  sprintf(msg, "% 9.5f % 9.5f % 9.5f % 9.5f % 5.2f", 
+                            x[0],y[0],x[1],y[1], readTemperature());
               }
 
-              // Handle Cases of NAN
-              if (xa != xa) xa = 999.;
-              if (ya != ya) ya = 999.;
-              if (xb != xb) xb = 999.;
-              if (yb != yb) yb = 999.; 
-
-              sprintf(msg, "% 9.5f % 9.5f % 9.5f % 9.5f % 5.2f", xa,ya,xb,yb, readTemperature());
-              Serial.println(msg);
+          Serial.println(msg);
           }
       }
 

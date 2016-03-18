@@ -9,6 +9,9 @@ bool pinstate              = 0;
 bool debug                 = 0;
 bool print_stddev          = 0;
 bool dynamic_recalibration = 0;
+bool abort                 = 0;
+int beat                   = 0;
+int meas_cnt               = 0;
 
 void setup() {
   // Setup Serial Bus
@@ -17,7 +20,6 @@ void setup() {
   configureBoard();
 }
 
-int meas_cnt = 0; 
 void loop()
 {
     beat++; 
@@ -67,11 +69,10 @@ void diagnosticPrint () {
 void sanitizePosition(struct position_t &position) {
 
     // Handle Cases of NAN
-
-    bool data_bad = (position.x!=position.x || position.y!=position.y ||
+    bool data_err = (position.x!=position.x || position.y!=position.y ||
             position.x_err!=position.x_err || position.y_err!=position.y_err ); 
 
-    if (data_bad)  {
+    if (data_err)  {
         position.x    =999.99999; 
         position.y    =999.99999;
         position.x_err=  9.99999; 
@@ -114,6 +115,13 @@ void measurePosition () {
 
     int cnt=0; 
     while (cnt<NSAMPLES) {
+
+        // allow the sub-processes to abort the reading.. for timeout, or bad data, etc.. 
+        if (abort) {
+            abort = false; 
+            return; 
+        }
+
         struct dualPSDMeasurement data = measureAmplitude(); 
         for (int ipsd=0; ipsd<2; ipsd++) {
             sum[ipsd].x = sum[ipsd].x + data.x(ipsd); 
@@ -122,6 +130,7 @@ void measurePosition () {
             sum[ipsd].x_sq = sum[ipsd].x_sq + sum[ipsd].x*sum[ipsd].x; 
             sum[ipsd].y_sq = sum[ipsd].y_sq + sum[ipsd].y*sum[ipsd].y;
         }
+
         // increment
         cnt=cnt+1; 
     }
@@ -129,10 +138,10 @@ void measurePosition () {
     struct position_t position [2];
 
     for (int ipsd=0; ipsd<2; ipsd++) {
-        position[ipsd].x     = sum[ipsd].x   /(NSAMPLES*NSAMPLES_PER_CYCLE); 
-        position[ipsd].y     = sum[ipsd].y   /(NSAMPLES*NSAMPLES_PER_CYCLE); 
-        position[ipsd].x_sq  = sum[ipsd].x_sq/(NSAMPLES*NSAMPLES_PER_CYCLE); 
-        position[ipsd].y_sq  = sum[ipsd].y_sq/(NSAMPLES*NSAMPLES_PER_CYCLE); 
+        position[ipsd].x     = sum[ipsd].x    / (NSAMPLES*NSAMPLES_PER_CYCLE);
+        position[ipsd].y     = sum[ipsd].y    / (NSAMPLES*NSAMPLES_PER_CYCLE);
+        position[ipsd].x_sq  = sum[ipsd].x_sq / (NSAMPLES*NSAMPLES_PER_CYCLE);
+        position[ipsd].y_sq  = sum[ipsd].y_sq / (NSAMPLES*NSAMPLES_PER_CYCLE);
 
         position[ipsd].x_err = sqrt(position[ipsd].x_sq - position[ipsd].x*position[ipsd].x); 
         position[ipsd].y_err = sqrt(position[ipsd].y_sq - position[ipsd].y*position[ipsd].y); 
@@ -140,6 +149,8 @@ void measurePosition () {
         // Handle Cases of NAN
         sanitizePosition(position[ipsd]); 
     }
+
+    printPositions(position[0], position[1]); 
 
 }
 
@@ -157,8 +168,8 @@ struct dualPSDMeasurement measureAmplitude ()
         // let's not get stuck here forever..
         timeout++; 
         if (timeout > TIMEOUT_COUNT) {
-            amplitude.psd0.reset(); 
-            amplitude.psd1.reset(); 
+            abort = true; 
+            amplitude.reset(); 
             return amplitude; 
         }; 
 
@@ -195,10 +206,8 @@ struct dualPSDMeasurement measurePositionOnce() {
     struct dualPSDMeasurement data; 
     struct dualPSDMeasurement sum; 
 
-    data.psd0.reset(); 
-    data.psd1.reset(); 
-     sum.psd0.reset(); 
-     sum.psd1.reset(); 
+    data.reset(); 
+    sum.reset(); 
 
     // wait for signals to rise
     delayMicroseconds(125);
@@ -255,9 +264,9 @@ void measurePositionDebug() {
 
         /* Take some number of samples in an individual duty cycle */
         for (int i=0; i<(2*NSAMPLES_PER_CYCLE); i++) {
-        int ipsd = i % 2; // read PSD 0 on even, PSD1 on odd measurements
-        data[ipsd] = readSensor(ipsd); 
-        sum[ipsd] = sum[ipsd] + data[ipsd];
+            int ipsd = i % 2; // read PSD 0 on even, PSD1 on odd measurements
+            data[ipsd] = readSensor(ipsd); 
+            sum[ipsd] = sum[ipsd] + data[ipsd];
         }
 
         /* This is the ANALOG threshold. It is NOT the one that is used to generate
@@ -280,30 +289,29 @@ void measurePositionDebug() {
 
 
         for (int ipsd = 0; ipsd < 2; ipsd++) {
+            /* Accumulate values for high state in this duty cycle */ 
+            if (state == HIGH && count_high[ipsd] < NSAMPLES) {
+                count_high[ipsd] += 1;
+                sum_high   [ipsd] = sum_high   [ipsd] + data[ipsd];
+                sum_sq_high[ipsd] = sum_sq_high[ipsd] + data[ipsd]*data[ipsd];
 
-        /* Accumulate values for high state in this duty cycle */ 
-        if (state == HIGH && count_high[ipsd] < NSAMPLES) {
-            count_high[ipsd] += 1;
-            sum_high   [ipsd] = sum_high   [ipsd] + data[ipsd];
-            sum_sq_high[ipsd] = sum_sq_high[ipsd] + data[ipsd]*data[ipsd];
+                x1_max[ipsd] = max(data[ipsd].x1, x1_max[ipsd]); 
+                x2_max[ipsd] = max(data[ipsd].x2, x2_max[ipsd]); 
+                y1_max[ipsd] = max(data[ipsd].y1, y1_max[ipsd]); 
+                y2_max[ipsd] = max(data[ipsd].y2, y2_max[ipsd]); 
 
-            x1_max[ipsd] = max(data[ipsd].x1, x1_max[ipsd]); 
-            x2_max[ipsd] = max(data[ipsd].x2, x2_max[ipsd]); 
-            y1_max[ipsd] = max(data[ipsd].y1, y1_max[ipsd]); 
-            y2_max[ipsd] = max(data[ipsd].y2, y2_max[ipsd]); 
+                x1_min[ipsd] = min(data[ipsd].x1, x1_min[ipsd]); 
+                x2_min[ipsd] = min(data[ipsd].x2, x2_min[ipsd]); 
+                y1_min[ipsd] = min(data[ipsd].y1, y1_min[ipsd]); 
+                y2_min[ipsd] = min(data[ipsd].y2, y2_min[ipsd]); 
+            }
 
-            x1_min[ipsd] = min(data[ipsd].x1, x1_min[ipsd]); 
-            x2_min[ipsd] = min(data[ipsd].x2, x2_min[ipsd]); 
-            y1_min[ipsd] = min(data[ipsd].y1, y1_min[ipsd]); 
-            y2_min[ipsd] = min(data[ipsd].y2, y2_min[ipsd]); 
-        }
-
-        /* Accumulate values for low state in this duty cycle */ 
-        else if (state == LOW && count_low[ipsd] < NSAMPLES) {
-            count_low[ipsd] += 1;
-            sum_low   [ipsd] = sum_low   [ipsd] + data[ipsd];
-            sum_sq_low[ipsd] = sum_sq_low[ipsd] + data[ipsd]*data[ipsd];
-        }
+            /* Accumulate values for low state in this duty cycle */ 
+            else if (state == LOW && count_low[ipsd] < NSAMPLES) {
+                count_low[ipsd] += 1;
+                sum_low   [ipsd] = sum_low   [ipsd] + data[ipsd];
+                sum_sq_low[ipsd] = sum_sq_low[ipsd] + data[ipsd]*data[ipsd];
+            }
         }
 
         /* Check if we have enough total samples for both the high and low states*/ 
@@ -439,7 +447,6 @@ void measurePositionDebug() {
     }
 }
 
-int beat=0; 
 
 float voltage (float adc_counts, int ipsd) {
     return ((VREF*adc_counts)/(GAIN[PSD_ID][ipsd]*4095)); 
@@ -485,15 +492,15 @@ void interruptB4() { if (TRIG_ENABLE[7]) {interrupt();}}
 void interrupt()   { if (!triggered) {triggered = true;}};
 
 float readTemperature() {
-    int temp_measurements = 25; 
+    int num_meas = 25; 
     double temperature_sum=0; 
-    for (int imeas=0; imeas<temp_measurements; imeas++) {
+    for (int imeas=0; imeas<num_meas; imeas++) {
       int   temp        = analogRead(9); 
       float voltage     = (temp * VREF) /((1<<12)-1); 
       float temperature = (voltage-0.424)/0.00625;  // conferre the LM60 data sheet for the origin of these magic numbers
       temperature_sum += temperature; 
     }
-    return (temperature_sum/temp_measurements); 
+    return (temperature_sum/num_meas); 
 }
 
 int analogWriteVoltage (float voltage, int ipsd) { 

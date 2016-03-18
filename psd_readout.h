@@ -79,6 +79,11 @@ struct dualPSDMeasurement {
 
     double x  (int ipsd) {(ipsd==0) ? return(psd0.x()) : return(psd1.x()) }
     double y  (int ipsd) {(ipsd==0) ? return(psd0.y()) : return(psd1.y()) }
+
+    void reset () {
+        psd0.reset(); 
+        psd1.reset(); 
+    }
 }; 
 
 #endif /* PSD_READOUT_H */

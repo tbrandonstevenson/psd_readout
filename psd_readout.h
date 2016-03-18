@@ -1,8 +1,9 @@
 #ifndef PSD_READOUT_H
 #define PSD_READOUT_H 
 
-static const enum psd_id_list = {OPTICAL_TABLE, CAMERA}; 
-static const      psd_id_list PSD_ID = CAMERA; 
+static const int OPTICAL_TABLE = 0; 
+static const int CAMERA = 1; 
+static const int PSD_ID = CAMERA; 
 
 static const int    recalibration_threshold = 5; 
 
@@ -32,23 +33,6 @@ static const int    NSAMPLES_PER_CYCLE = 3; // Number of samples to take in a du
 
 static const float  VREF = 2.5f;  // Analog Voltage Reference
 
-void debugPrint (); 
-void sanitizePosition(struct position_t &position); 
-void printPositions(position_t position0, position_t position1); 
-void measurePosition (); 
-struct dualPSDMeasurement measureAmplitude (); 
-struct dualPSDMeasurement measurePositionOnce(); 
-void measurePositionDebug(); 
-float voltage (float adc_counts, int ipsd); 
-float voltageNoCal (float adc_counts); 
-struct psdMeasurement readSensor(int ipsd); 
-float readTemperature(); 
-int analogWriteVoltage (float voltage, int ipsd); 
-void calibrateThresholds (); 
-void printPedestal (); 
-struct dualPSDMeasurement measurePedestal (); 
-void configureBoard (); 
-
 struct position_t {
     float x; 
     float x_sq; 
@@ -72,18 +56,35 @@ struct dualPSDMeasurement {
     psdMeasurement psd0; 
     psdMeasurement psd1; 
 
-    double x1 (int ipsd) {(ipsd==0) ? return(psd0.x1) : return(psd1.x1) }
-    double x2 (int ipsd) {(ipsd==0) ? return(psd0.x2) : return(psd1.x2) }
-    double y1 (int ipsd) {(ipsd==0) ? return(psd0.y1) : return(psd1.y1) }
-    double y2 (int ipsd) {(ipsd==0) ? return(psd0.y2) : return(psd1.y2) }
+    double x1 (int ipsd) {double ret = (ipsd==0) ? psd0.x1 : psd1.x1; return ret; }
+    double x2 (int ipsd) {double ret = (ipsd==0) ? psd0.x2 : psd1.x2; return ret; }
+    double y1 (int ipsd) {double ret = (ipsd==0) ? psd0.y1 : psd1.y1; return ret; }
+    double y2 (int ipsd) {double ret = (ipsd==0) ? psd0.y2 : psd1.y2; return ret; }
 
-    double x  (int ipsd) {(ipsd==0) ? return(psd0.x()) : return(psd1.x()) }
-    double y  (int ipsd) {(ipsd==0) ? return(psd0.y()) : return(psd1.y()) }
+    double x (int ipsd) {double ret = (ipsd==0) ? psd0.x() : psd1.x(); return ret; }
+    double y (int ipsd) {double ret = (ipsd==0) ? psd0.y() : psd1.y(); return ret; }
 
     void reset () {
         psd0.reset(); 
         psd1.reset(); 
     }
 }; 
+
+void debugPrint (); 
+void sanitizePosition(struct position_t &position); 
+void printPositions(struct position_t position0, struct position_t position1); 
+void measurePosition (); 
+struct dualPSDMeasurement measureAmplitude (); 
+struct dualPSDMeasurement measurePositionOnce(); 
+void measurePositionDebug(); 
+float voltage (float adc_counts, int ipsd); 
+float voltageNoCal (float adc_counts); 
+struct psdMeasurement readSensor(int ipsd); 
+float readTemperature(); 
+int analogWriteVoltage (float voltage, int ipsd); 
+void calibrateThresholds (); 
+void printPedestal (); 
+struct dualPSDMeasurement measurePedestal (); 
+void configureBoard (); 
 
 #endif /* PSD_READOUT_H */

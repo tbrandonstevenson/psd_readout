@@ -1,15 +1,17 @@
 //TODO min/max checking
 #include "position_measurement.h"
+#include "psd_readout.h"
+
 
 char msg [110];
 
 volatile bool triggered = false;
 
-bool pinstate              = 0;
-bool debug                 = 0;
-bool print_stddev          = 0;
-bool dynamic_recalibration = 0;
-bool abort                 = 0;
+bool pinstate              = false;
+bool debug                 = false;
+bool print_stddev          = false;
+bool dynamic_recalibration = false;
+bool abort_reading         = false;
 int beat                   = 0;
 int meas_cnt               = 0;
 
@@ -48,19 +50,21 @@ void loop()
 }
 
 void diagnosticPrint () {
+
     struct psdMeasurement debug_data [2];
 
     debug_data[0] = readSensor(0); 
     debug_data[1] = readSensor(1); 
 
-    for (int i=0; i<2; i++) { 
-        sprintf(msg, "heartbeat: %i: x1=%6.4f x2=%6.4f y1=%6.4f y2=%6.4f temp=%4.1f", 
+    for (int ipsd=0; ipsd<2; ipsd++) { 
+        sprintf(msg, "heartbeat: psd%i: x1=%6.4f x2=%6.4f y1=%6.4f y2=%6.4f temp=%4.1f", 
             ipsd, 
             voltage(debug_data[ipsd].x1, ipsd), 
             voltage(debug_data[ipsd].x2, ipsd), 
             voltage(debug_data[ipsd].y1, ipsd), 
             voltage(debug_data[ipsd].y2, ipsd), 
-            readTemperature());
+            readTemperature()
+        );
         Serial.println(msg);
     }
 }
@@ -97,10 +101,10 @@ void printPositions(position_t position0, position_t position1) {
     }
     else  {
         sprintf(msg, "% 9.5f % 9.5f % 9.5f % 9.5f % 5.2f", 
-                position[0].x,
-                position[0].y,
-                position[1].x,
-                position[1].y, 
+                position0.x,
+                position0.y,
+                position1.x,
+                position1.y, 
                 readTemperature());
     }
 
@@ -116,9 +120,9 @@ void measurePosition () {
     int cnt=0; 
     while (cnt<NSAMPLES) {
 
-        // allow the sub-processes to abort the reading.. for timeout, or bad data, etc.. 
-        if (abort) {
-            abort = false; 
+        // allow the sub-processes to abort_reading the reading.. for timeout, or bad data, etc.. 
+        if (abort_reading) {
+            abort_reading = !abort_reading; 
             return; 
         }
 
@@ -168,7 +172,7 @@ struct dualPSDMeasurement measureAmplitude ()
         // let's not get stuck here forever..
         timeout++; 
         if (timeout > TIMEOUT_COUNT) {
-            abort = true; 
+            abort_reading = true; 
             amplitude.reset(); 
             return amplitude; 
         }; 
@@ -276,10 +280,10 @@ void measurePositionDebug() {
         bool state = 0; 
         for (int ipsd = 0; ipsd < 2; ipsd++) {
         for (int i=0; i<2; i++) {
-            state |= voltage(data[ipsd].x1, ipsd) > analog_threshold; 
-            state |= voltage(data[ipsd].x2, ipsd) > analog_threshold;
-            state |= voltage(data[ipsd].y1, ipsd) > analog_threshold; 
-            state |= voltage(data[ipsd].y2, ipsd) > analog_threshold; 
+            state |= (voltage(data[ipsd].x1, ipsd) > analog_threshold[ipsd]); 
+            state |= (voltage(data[ipsd].x2, ipsd) > analog_threshold[ipsd]);
+            state |= (voltage(data[ipsd].y1, ipsd) > analog_threshold[ipsd]); 
+            state |= (voltage(data[ipsd].y2, ipsd) > analog_threshold[ipsd]); 
         }
         }
 
@@ -471,10 +475,10 @@ struct psdMeasurement readSensor(int ipsd)
     data.y2_sq = data.y2*data.y2; 
 
     data.state = 0; 
-    data.state |= voltage(data.x1, ipsd) > analog_threshold; 
-    data.state |= voltage(data.x2, ipsd) > analog_threshold;
-    data.state |= voltage(data.y1, ipsd) > analog_threshold; 
-    data.state |= voltage(data.y2, ipsd) > analog_threshold; 
+    data.state |= voltage(data.x1, ipsd) > analog_threshold[ipsd]; 
+    data.state |= voltage(data.x2, ipsd) > analog_threshold[ipsd];
+    data.state |= voltage(data.y1, ipsd) > analog_threshold[ipsd]; 
+    data.state |= voltage(data.y2, ipsd) > analog_threshold[ipsd]; 
 
     return data; 
 }
@@ -520,26 +524,27 @@ int analogWriteVoltage (float voltage, int ipsd) {
     return dac_counts; 
 }
 
+//TODO need to make this work sanely with no-laser 
 void calibrateThresholds () {
-    struct dualPSDMeasurement mean      = measurePedestal(); 
-    struct dualPSDMeasurement amplitude = measureAmplitude(); 
+    struct dualPSDMeasurement pedestal_reading  = measurePedestal(); 
+    struct dualPSDMeasurement amplitude_reading = measureAmplitude(); 
 
-    float pedestal  [2] = {2.5,2.5}; 
-    float amplitude [2] = {0,0}; 
+    float max_amplitude [2] = {0,0}; 
+    float min_pedestal  [2] = {2.5,2.5}; 
     float threshold [2]; 
 
     for (int ipsd=0; ipsd<2; ipsd++) { 
-        pedestal[ipsd] = min(pedestal[ipsd], voltageNoCal(mean.x1(ipsd))); 
-        pedestal[ipsd] = min(pedestal[ipsd], voltageNoCal(mean.x2(ipsd))); 
-        pedestal[ipsd] = min(pedestal[ipsd], voltageNoCal(mean.y1(ipsd))); 
-        pedestal[ipsd] = min(pedestal[ipsd], voltageNoCal(mean.y2(ipsd))); 
+        min_pedestal[ipsd] = min(min_pedestal[ipsd], voltageNoCal(pedestal_reading.x1(ipsd))); 
+        min_pedestal[ipsd] = min(min_pedestal[ipsd], voltageNoCal(pedestal_reading.x2(ipsd))); 
+        min_pedestal[ipsd] = min(min_pedestal[ipsd], voltageNoCal(pedestal_reading.y1(ipsd))); 
+        min_pedestal[ipsd] = min(min_pedestal[ipsd], voltageNoCal(pedestal_reading.y2(ipsd))); 
 
-        amplitude[ipsd] = max(amplitude[ipsd], voltageNoCal(mean.x1(ipsd))); 
-        amplitude[ipsd] = max(amplitude[ipsd], voltageNoCal(mean.x2(ipsd))); 
-        amplitude[ipsd] = max(amplitude[ipsd], voltageNoCal(mean.y1(ipsd))); 
-        amplitude[ipsd] = max(amplitude[ipsd], voltageNoCal(mean.y2(ipsd))); 
+        max_amplitude [ipsd] = max(max_amplitude[ipsd], voltageNoCal(amplitude_reading.x1(ipsd))); 
+        max_amplitude [ipsd] = max(max_amplitude[ipsd], voltageNoCal(amplitude_reading.x2(ipsd))); 
+        max_amplitude [ipsd] = max(max_amplitude[ipsd], voltageNoCal(amplitude_reading.y1(ipsd))); 
+        max_amplitude [ipsd] = max(max_amplitude[ipsd], voltageNoCal(amplitude_reading.y2(ipsd))); 
 
-        threshold[ipsd] = max(MIN_THRESHOLD, (amplitude[ipsd]-pedestal[ipsd]) / 2); 
+        threshold[ipsd] = max(MIN_THRESHOLD, (max_amplitude[ipsd]-min_pedestal[ipsd]) / 3.0); 
 
         analogWriteVoltage (threshold[ipsd], ipsd); 
         analog_threshold[ipsd] = threshold[ipsd];  

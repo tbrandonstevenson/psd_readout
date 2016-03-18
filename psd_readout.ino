@@ -1,21 +1,15 @@
-#include <SPI.h>
-#include "dac_write.h"
 #include "position_measurement.h"
 
-
-static const int CAMERA = 1; 
-static const int OPTICAL_TABLE = 0; 
-
-//static const int SERIAL_NO = OPTICAL_TABLE; 
-static const int SERIAL_NO = CAMERA; 
+static const enum psd_id_list = {OPTICAL_TABLE, CAMERA}; 
+static const      psd_id_list PSD_ID = CAMERA; 
 
 static const int    LED     [2]    = { 24, 25 };
 static const int    PSD_PIN [2][4] = {{ 0,  1,  2,  3}, { 4,  5,  6,  7}};
 static const int    TRIG    [2][4] = {{41, 50, 34, 39}, {36, 37, 38, 40}}; 
 static const int    TRIGf   [8]    = { 41, 50, 34, 39 ,  36, 37, 38, 40 }; 
 
-static const int    GAIN[2][2]         = {{2,2},{1, 4}};  // per channel gain of each PSD
-static const float  DAC_ATTENUATION[2] = {1.0,0.325}; // attenuation value applied to the threshold comparator DACs
+static const int    GAIN[2][2]            = {{2,2},{1, 4}};  // per channel gain of each PSD
+static const float  DAC_ATTENUATION[2][2] = {{1.0,1.0},{0.325,0.325}}; // attenuation value applied to the threshold comparator DACs
 
                                      //A1, A2, A3, A4, B1, B2, B3, B4
 static const int    TRIG_ENABLE [8] = {1,  1,  1,  1,  1,  1,  1,  1}; 
@@ -27,10 +21,7 @@ static const float  VREF = 2.5f;  // Analog Voltage Reference
 
 char msg [110];
 
-volatile bool is_reading = false;
-volatile bool enableA = false; 
-volatile bool enableB = false; 
-volatile char trig_source = 0;
+volatile bool triggered = false;
 
 psdMeasurement readSensor(int ipsd);
 
@@ -39,23 +30,6 @@ bool pinstate = 0;
 bool debug = 0;
 bool print_stddev = 0;
 
-
-void setup()
-{
-  // Setup Serial Bus
-  Serial.begin(115200);
-
-  //SPI.begin();
-  //SPI.setDataMode(SPI_MODE1);
-  //SPI.setBitOrder(MSBFIRST);
-  //SPI.setClockDivider(4);
-
-  Serial.println("configuring board...");
-
-  configureBoard();
-
-  Serial.println("board configured...");
-}
 
 
 void debugPrint () {
@@ -206,9 +180,9 @@ struct dualPSDMeasurement measureAmplitude ()
             return amplitude; 
         }; 
 
-        if (is_reading) { 
+        if (triggered) { 
 
-            is_reading = false; 
+            triggered = false; 
 
             struct dualPSDMeasurement data = measurePositionOnce(); 
 
@@ -382,14 +356,14 @@ void measurePositionDebug() {
 
         // update the maximum difference if the current is the largest
         // we scale this by the GAIN of the channel to equalize ADC values
-        diffmax = max(diffx1_0/GAIN[SERIAL_NO][0],diffmax); 
-        diffmax = max(diffx2_0/GAIN[SERIAL_NO][0],diffmax); 
-        diffmax = max(diffy1_0/GAIN[SERIAL_NO][0],diffmax); 
-        diffmax = max(diffy2_0/GAIN[SERIAL_NO][0],diffmax); 
-        diffmax = max(diffx1_1/GAIN[SERIAL_NO][1],diffmax); 
-        diffmax = max(diffx2_1/GAIN[SERIAL_NO][1],diffmax); 
-        diffmax = max(diffy1_1/GAIN[SERIAL_NO][1],diffmax); 
-        diffmax = max(diffy2_1/GAIN[SERIAL_NO][1],diffmax); 
+        diffmax = max(diffx1_0/GAIN[PSD_ID][0],diffmax); 
+        diffmax = max(diffx2_0/GAIN[PSD_ID][0],diffmax); 
+        diffmax = max(diffy1_0/GAIN[PSD_ID][0],diffmax); 
+        diffmax = max(diffy2_0/GAIN[PSD_ID][0],diffmax); 
+        diffmax = max(diffx1_1/GAIN[PSD_ID][1],diffmax); 
+        diffmax = max(diffx2_1/GAIN[PSD_ID][1],diffmax); 
+        diffmax = max(diffy1_1/GAIN[PSD_ID][1],diffmax); 
+        diffmax = max(diffy2_1/GAIN[PSD_ID][1],diffmax); 
 
         for (int ipsd = 0; ipsd < 2; ipsd++) {
             mean_high[ipsd] = sum_high[ipsd]/NSAMPLES; 
@@ -485,32 +459,9 @@ void measurePositionDebug() {
 }
 
 int beat=0; 
-void loop()
-{
-  if (debug) {
-    beat++; 
-    if (beat%1000000==0) {
-	    is_reading = 0; 
-	    Serial.println("heartbeat..."); 
-        debugPrint(); 
-    }
-  }
-
-  if (Serial.available() > 0) {
-      char byteIn = Serial.read(); 
-      if      (byteIn == 'd') debug = !debug; 
-      if      (byteIn == 's') print_stddev = !print_stddev; 
-      if      (byteIn == 'c') calibrateThresholds; 
-  }
-  else if (is_reading) {
-    beat=0;
-    if   (!debug) measurePosition(); 
-    else          measurePositionDebug(); 
-  }
-}
 
 float voltage (float adc_counts, int ipsd) {
-    return ((VREF*adc_counts)/(GAIN[SERIAL_NO][ipsd]*4095)); 
+    return ((VREF*adc_counts)/(GAIN[PSD_ID][ipsd]*4095)); 
 }
 
 float voltageNoCal (float adc_counts) {
@@ -557,7 +508,7 @@ void interruptB2() { if (TRIG_ENABLE[5]) {interrupt();}}
 void interruptB3() { if (TRIG_ENABLE[6]) {interrupt();}}
 void interruptB4() { if (TRIG_ENABLE[7]) {interrupt();}}
 
-void interrupt()   { if (!is_reading) {is_reading = true;}};
+void interrupt()   { if (!triggered) {triggered = true;}};
 
 float readTemperature() {
     int temp_measurements = 25; 
@@ -575,7 +526,7 @@ int analogWriteVoltage (float voltage, int ipsd) {
     // TODO: voltage should range between ~0.13 and 0.6875  
 
     float vref = VREF;  // 2.5V
-    float attenuation = DAC_ATTENUATION[SERIAL_NO]; 
+    float attenuation = DAC_ATTENUATION[PSD_ID][ipsd]; 
 
     // the atsam3x8e processor has a DAC output voltage range that varies between 1/6 and 5/6 of VREF; 
     // on one PSD, at least, that voltage is decreased by an additional factor of ~1/3 (or more closely 0.325)
@@ -704,7 +655,7 @@ void configureBoard () {
     analogWriteResolution(12);
 
     const char *psd_ascii[2] = {"OPTICAL_TABLE", "CAMERA       "}; 
-    sprintf(msg, "PSD Firmware Compiled for PSD Station: %s", psd_ascii[SERIAL_NO]); 
+    sprintf(msg, "PSD Firmware Compiled for PSD Station: %s", psd_ascii[PSD_ID]); 
     Serial.println(msg);
 
     // Set Default Threshold Voltages
@@ -743,4 +694,44 @@ void configureBoard () {
 
     pinMode(LED[1], OUTPUT);
     digitalWrite(LED[1], LOW);
+}
+
+void setup() {
+  // Setup Serial Bus
+  Serial.begin(115200);
+
+  //SPI.begin();
+  //SPI.setDataMode(SPI_MODE1);
+  //SPI.setBitOrder(MSBFIRST);
+  //SPI.setClockDivider(4);
+
+  Serial.println("configuring board...");
+
+  configureBoard();
+
+  Serial.println("board configured...");
+}
+
+void loop()
+{
+  if (debug) {
+    beat++; 
+    if (beat%1000000==0) {
+	    triggered = 0; 
+	    Serial.println("heartbeat..."); 
+        debugPrint(); 
+    }
+  }
+
+  if (Serial.available() > 0) {
+      char byteIn = Serial.read(); 
+      if      (byteIn == 'd') debug = !debug; 
+      if      (byteIn == 's') print_stddev = !print_stddev; 
+      if      (byteIn == 'c') calibrateThresholds; 
+  }
+  else if (triggered) {
+    beat=0;
+    if   (!debug) measurePosition(); 
+    else          measurePositionDebug(); 
+  }
 }

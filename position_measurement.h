@@ -49,6 +49,8 @@ struct psdMeasurement {
         pos.y1_sq = c1.y1_sq + c2.y1_sq;
         pos.y2_sq = c1.y2_sq + c2.y2_sq;
 
+        pos.state = c1.state || c2.state; 
+
         return pos;
     }
 
@@ -145,6 +147,8 @@ struct psdMeasurement {
         x2_sq = (c1.x2_sq);
         y1_sq = (c1.y1_sq);
         y2_sq = (c1.y2_sq);
+
+        state = c1.state; 
 
         return *this;
     }

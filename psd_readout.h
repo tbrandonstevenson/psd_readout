@@ -12,18 +12,19 @@ static const int    PSD_PIN [2][4] = {{ 0,  1,  2,  3}, { 4,  5,  6,  7}};
 static const int    TRIG    [2][4] = {{41, 50, 34, 39}, {36, 37, 38, 40}}; 
 static const int    TRIGf   [8]    = { 41, 50, 34, 39 ,  36, 37, 38, 40 }; 
 
-static const int    GAIN[2][2]            = {{2,2},{1, 4}};  // per channel gain of each PSD
+static const float  GAIN[2][2]            = {{2,2},{1, 4}};  // per channel gain of each PSD
 static const float  DAC_ATTENUATION[2][2] = {{1.0,1.0},{0.325,0.325}}; // attenuation value applied to the threshold comparator DACs
 
 /* This is the ANALOG threshold. It is NOT the one that is used to generate
 * trigger pulses, but rather is used to determine whether the PSD is in
 * high or low state. 
 */ 
-float analog_threshold [2] = {0.10,0.10}; 
 
-float MIN_THRESHOLD = 0.05; 
+float MIN_THRESHOLD = 0.13; 
+float analog_threshold [2] = {0.15, 0.15}; 
+float   trig_threshold [2] = {MIN_THRESHOLD, MIN_THRESHOLD}; 
 
-static const int TIMEOUT_COUNT = 500000; 
+static const int TIMEOUT_COUNT = 1000; 
 
                                      //A1, A2, A3, A4, B1, B2, B3, B4
 static const int    TRIG_ENABLE [8] = {1,  1,  1,  1,  1,  1,  1,  1}; 
@@ -50,6 +51,22 @@ struct position_t {
         x_err  =  0;
         y_err  =  0;
     }; 
+}; 
+
+struct dualPosition {
+    struct position_t psd0; 
+    struct position_t psd1; 
+
+    double x (int ipsd) {double ret = (ipsd==0) ? psd0.x() : psd1.x(); return ret; }
+    double y (int ipsd) {double ret = (ipsd==0) ? psd0.y() : psd1.y(); return ret; }
+
+    double x_err (int ipsd) {double ret = (ipsd==0) ? psd0.x_err : psd1.x_err; return ret; }
+    double y_err (int ipsd) {double ret = (ipsd==0) ? psd0.y_err : psd1.y_err; return ret; }
+
+    void reset () {
+        psd0.reset(); 
+        psd1.reset(); 
+    }
 }; 
 
 struct dualPSDMeasurement {

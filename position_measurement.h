@@ -81,10 +81,10 @@ struct psdMeasurement {
         y2 = analogRead(PSD_PIN[ipsd][3]);
 
         state = 0;
-        state |= voltage(data.x1, ipsd) > analog_threshold[ipsd];
-        state |= voltage(data.x2, ipsd) > analog_threshold[ipsd];
-        state |= voltage(data.y1, ipsd) > analog_threshold[ipsd];
-        state |= voltage(data.y2, ipsd) > analog_threshold[ipsd];
+        state |= voltage(x1, ipsd) > analog_threshold[ipsd];
+        state |= voltage(x2, ipsd) > analog_threshold[ipsd];
+        state |= voltage(y1, ipsd) > analog_threshold[ipsd];
+        state |= voltage(y2, ipsd) > analog_threshold[ipsd];
     }
 
 
@@ -186,8 +186,8 @@ struct dualPSDMeasurement {
     double y (int ipsd) {double ret = (ipsd==0) ? psd0.y() : psd1.y(); return ret; }
 
     void read () {
-        psd0.read(); 
-        psd1.read(); 
+        psd0.read(0); 
+        psd1.read(1); 
     }
 
     void reset () {
@@ -200,14 +200,44 @@ struct dualPosition {
     struct position_t psd0; 
     struct position_t psd1; 
 
-    double x (int ipsd) {double ret = (ipsd==0) ? psd0.x() : psd1.x(); return ret; }
-    double y (int ipsd) {double ret = (ipsd==0) ? psd0.y() : psd1.y(); return ret; }
+    double x (int ipsd) {double ret = (ipsd==0) ? psd0.x : psd1.x; return ret; }
+    double y (int ipsd) {double ret = (ipsd==0) ? psd0.y : psd1.y; return ret; }
 
-    double x_sq (int ipsd) {double ret = (ipsd==0) ? psd0.x_sq() : psd1.x_sq(); return ret; }
-    double y_sq (int ipsd) {double ret = (ipsd==0) ? psd0.y_sq() : psd1.y_sq(); return ret; }
+    double x_sq (int ipsd) {double ret = (ipsd==0) ? psd0.x_sq : psd1.x_sq; return ret; }
+    double y_sq (int ipsd) {double ret = (ipsd==0) ? psd0.y_sq : psd1.y_sq; return ret; }
 
     double x_err (int ipsd) {double ret = (ipsd==0) ? psd0.x_err : psd1.x_err; return ret; }
     double y_err (int ipsd) {double ret = (ipsd==0) ? psd0.y_err : psd1.y_err; return ret; }
+
+    void set_x (int ipsd, double value) {
+        if (ipsd==0) psd0.x = value; 
+        if (ipsd==1) psd1.x = value; 
+    }
+
+    void set_y (int ipsd, double value) {
+        if (ipsd==0) psd0.y = value; 
+        if (ipsd==1) psd1.y = value; 
+    }
+
+    void set_x_sq (int ipsd, double value) {
+        if (ipsd==0) psd0.x_sq = value; 
+        if (ipsd==1) psd1.x_sq = value; 
+    }
+
+    void set_y_sq (int ipsd, double value) {
+        if (ipsd==0) psd0.y_sq = value; 
+        if (ipsd==1) psd1.y_sq = value; 
+    }
+
+    void set_x_err (int ipsd, double value) {
+        if (ipsd==0) psd0.x_err = value; 
+        if (ipsd==1) psd1.x_err = value; 
+    }
+
+    void set_y_err (int ipsd, double value) {
+        if (ipsd==0) psd0.y_err = value; 
+        if (ipsd==1) psd1.y_err = value; 
+    }
 
     void reset () {
         psd0.reset(); 

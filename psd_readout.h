@@ -1,6 +1,21 @@
 #ifndef PSD_READOUT_H
 #define PSD_READOUT_H 
 
+volatile bool triggered = false;
+
+bool print_stddev          = false;
+
+bool pinstate              = false;
+bool debug                 = false;
+bool dynamic_recalibration = false;
+bool abort_reading         = false;
+bool continuous_readout    = true;
+
+int beat                   = 0;
+int meas_cnt               = 0;
+
+char msg [110];
+
 static const int OPTICAL_TABLE = 0; 
 static const int CAMERA = 1; 
 static const int PSD_ID = CAMERA; 
@@ -47,7 +62,6 @@ void calibrateThresholds ();
 void printPedestal (); 
 
 struct dualPSDMeasurement readPSDs(); 
-struct psdMeasurement readSensor(int ipsd); 
 struct dualPSDMeasurement readAmplitude (); 
 struct dualPSDMeasurement measurePedestal (); 
 

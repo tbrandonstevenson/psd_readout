@@ -3,8 +3,6 @@
 #include "position_measurement.h"
 #include "psd_readout.h"
 
-volatile bool triggered = false;
-
 /* Pin Change Interrupt Routines */
 void interruptA1() { if (TRIG_ENABLE[0]) {interrupt();}}
 void interruptA2() { if (TRIG_ENABLE[1]) {interrupt();}}
@@ -16,19 +14,6 @@ void interruptB3() { if (TRIG_ENABLE[6]) {interrupt();}}
 void interruptB4() { if (TRIG_ENABLE[7]) {interrupt();}}
 
 void interrupt()   {triggered = true;};
-
-char msg [110];
-
-
-bool pinstate              = false;
-bool debug                 = false;
-bool print_stddev          = false;
-bool dynamic_recalibration = false;
-bool abort_reading         = false;
-bool continuous_readout    = true;
-
-int beat                   = 0;
-int meas_cnt               = 0;
 
 void setup() {
     /* Setup Serial Port */
@@ -43,8 +28,8 @@ void setup() {
 
 void loop()
 {
-    beat++;
     /* if we go a long time without a trigger, try recalibrating thresholds and produce a diagnostic printout  */
+    beat++;
     if (beat%1000000==0) {
         triggered = false;
         if (debug) diagnosticPrint();
@@ -98,13 +83,9 @@ void diagnosticPrint () {
     }
 }
 
-
-
-
-
 void readPosition (int nsamples) {
-    struct dualPosition sum; 
-    sum.reset(); 
+    struct dualPosition positions; 
+    positions.reset(); 
 
     int cnt=0;
     while (cnt<nsamples) {
@@ -119,11 +100,11 @@ void readPosition (int nsamples) {
             /* measure signal amplitude on both PSDs */
             struct dualPSDMeasurement data = readAmplitude();
             for (int ipsd=0; ipsd<2; ipsd++) {
-                sum.x(ipsd) = sum.x(ipsd) + data.x(ipsd);
-                sum.y(ipsd) = sum.y(ipsd) + data.y(ipsd);
+                positions.set_x (ipsd, positions.x(ipsd) + data.x(ipsd));
+                positions.set_y (ipsd, positions.y(ipsd) + data.y(ipsd));
 
-                sum.x_sq(ipsd) = sum.x_sq(ipsd) + sum.x(ipsd)*sum.x(ipsd);
-                sum.y_sq(ipsd) = sum.y_sq(ipsd) + sum.y(ipsd)*sum.y(ipsd);
+                positions.set_x_sq(ipsd, positions.x_sq(ipsd) + positions.x(ipsd)*positions.x(ipsd));
+                positions.set_y_sq(ipsd, positions.y_sq(ipsd) + positions.y(ipsd)*positions.y(ipsd));
             }
 
             /* increment measurement counter */
@@ -134,17 +115,15 @@ void readPosition (int nsamples) {
         //TODO: probably want to add a timeout monitor here..? 
     }
 
-    struct dualpositions positions; 
-
     for (int ipsd=0; ipsd<2; ipsd++) {
-        positions.x(ipsd)     = sum.x(ipsd)    / (nsamples);
-        positions.y(ipsd)     = sum.y(ipsd)    / (nsamples);
+        positions.set_x(ipsd, positions.x(ipsd)    / (nsamples));
+        positions.set_y(ipsd, positions.y(ipsd)    / (nsamples));
 
-        positions.x_sq(ipsd)  = sum.x_sq(ipsd) / (nsamples);
-        positions.y_sq(ipsd)  = sum.y_sq(ipsd) / (nsamples);
+        positions.set_x_sq(ipsd, positions.x_sq(ipsd) / (nsamples));
+        positions.set_y_sq(ipsd, positions.y_sq(ipsd) / (nsamples));
 
-        positions.x_err(ipsd) = sqrt(positions.x_sq(ipsd) - positions.x(ipsd)*positions.x(ipsd));
-        positions.y_err(ipsd) = sqrt(positions.y_sq(ipsd) - positions.y(ipsd)*positions.y(ipsd));
+        positions.set_x_err (ipsd, sqrt(positions.x_sq(ipsd) - positions.x(ipsd)*positions.x(ipsd)));
+        positions.set_x_err (ipsd, sqrt(positions.y_sq(ipsd) - positions.y(ipsd)*positions.y(ipsd)));
 
         /* Handle Cases of NAN */
         //positions[ipsd].sanitize();
@@ -228,12 +207,12 @@ struct dualPSDMeasurement readPSDs() {
         int ipsd = i % 2;
 
         if (ipsd==0) {
-            data.psd0.read(); 
+            data.psd0.read(ipsd); 
             sum.psd0  = sum.psd0 + data.psd0;
             sum.psd0.state |= data.psd0.state;
         }
         if (ipsd==1)  {
-            data.psd1.read(); 
+            data.psd1.read(ipsd); 
             sum.psd1 = sum.psd1 + data.psd1;
             sum.psd1.state |= data.psd1.state;
         }
@@ -249,8 +228,8 @@ void readPositionDebug() {
 
     bool last_read_state=0;
 
-    struct psdMeasurement voltage_high;
-    struct psdMeasurement voltage_low ;
+    struct psdMeasurement voltage_high [2];
+    struct psdMeasurement voltage_low  [2];
 
     int count_high [2] = {0, 0};
     int count_low  [2] = {0, 0};
@@ -266,211 +245,169 @@ void readPositionDebug() {
     double y2_max [2] = {0,0};
 
     struct psdMeasurement sum_low [2];
-    struct psdMeasurement sum_high [2];
+    struct psdMeasurement sum_high[2]; 
 
-    struct psdMeasurement sum_sq_high[2];
     struct psdMeasurement sum_sq_low [2];
+    struct psdMeasurement sum_sq_high[2]; 
 
     bool finished_reading = 0;
 
     while (!finished_reading) {
-        /* Position measurements used for this duty cycle's measurements*/
-        struct psdMeasurement data [2];
-        struct psdMeasurement sum  [2];
+        if (triggered)  {
+            /* Position measurements used for this duty cycle's measurements*/
+            struct psdMeasurement data [2];
+            struct psdMeasurement sum [2]; 
 
-        memset (data, 0, sizeof(data[0]) * 2);
-        memset (sum,  0, sizeof(sum [0]) * 2);
+            data[0].reset(); 
+            data[1].reset(); 
+             sum[0].reset(); 
+             sum[1].reset(); 
 
-        // wait for signals to rise
-        delayMicroseconds(200);
+            // wait for signals to rise
+            delayMicroseconds(125);
 
-        /* Take some number of samples in an individual duty cycle */
-        for (int i=0; i<(2*NSAMPLES_PER_CYCLE); i++) {
+            bool state=false; 
 
-            /* read PSD 0 on even, PSD1 on odd measurements */
-            int ipsd = i % 2;
+            /* Take some number of samples in an individual duty cycle */
+            for (int i=0; i<(2*NSAMPLES_PER_CYCLE); i++) {
 
-            data[ipsd].read(); 
-            sum[ipsd] = sum[ipsd] + data[ipsd];
-        }
+                /* read PSD 0 on even, PSD1 on odd measurements */
+                int ipsd = i % 2;
 
-        /* This is the ANALOG threshold. It is NOT the one that is used to generate
-         * trigger pulses, but rather is used to determine whether the PSD is in
-         * high or low state.
-         */
-        bool state = 0;
-        for (int ipsd = 0; ipsd < 2; ipsd++) {
-            for (int i=0; i<2; i++) {
-                state |= (voltage(data[ipsd].x1, ipsd) > analog_threshold[ipsd]);
-                state |= (voltage(data[ipsd].x2, ipsd) > analog_threshold[ipsd]);
-                state |= (voltage(data[ipsd].y1, ipsd) > analog_threshold[ipsd]);
-                state |= (voltage(data[ipsd].y2, ipsd) > analog_threshold[ipsd]);
-            }
-        }
-
-        /* Check that Currently Reading State is opposite of Last Read State (HIGH vs. LOW) */
-        if (state == last_read_state) { return; }
-        else                          { last_read_state = state;}
-
-
-        for (int ipsd = 0; ipsd < 2; ipsd++) {
-            /* Accumulate values for high state in this duty cycle */
-            if (state == HIGH && count_high[ipsd] < NSAMPLES) {
-                count_high[ipsd] += 1;
-                sum_high   [ipsd] = sum_high   [ipsd] + data[ipsd];
-                sum_sq_high[ipsd] = sum_sq_high[ipsd] + data[ipsd]*data[ipsd];
-
-                x1_max[ipsd] = max(data[ipsd].x1, x1_max[ipsd]);
-                x2_max[ipsd] = max(data[ipsd].x2, x2_max[ipsd]);
-                y1_max[ipsd] = max(data[ipsd].y1, y1_max[ipsd]);
-                y2_max[ipsd] = max(data[ipsd].y2, y2_max[ipsd]);
-
-                x1_min[ipsd] = min(data[ipsd].x1, x1_min[ipsd]);
-                x2_min[ipsd] = min(data[ipsd].x2, x2_min[ipsd]);
-                y1_min[ipsd] = min(data[ipsd].y1, y1_min[ipsd]);
-                y2_min[ipsd] = min(data[ipsd].y2, y2_min[ipsd]);
+                data[ipsd].read(ipsd); 
+                sum[ipsd] = sum[ipsd] + data[ipsd];
+                state |= data[ipsd].state;
             }
 
-            /* Accumulate values for low state in this duty cycle */
-            else if (state == LOW && count_low[ipsd] < NSAMPLES) {
-                count_low[ipsd] += 1;
-                sum_low   [ipsd] = sum_low   [ipsd] + data[ipsd];
-                sum_sq_low[ipsd] = sum_sq_low[ipsd] + data[ipsd]*data[ipsd];
-            }
-        }
-
-        /* Check if we have enough total samples for both the high and low states*/
-        bool finished_measuring = false;
-        for (int ipsd = 0; ipsd < 2; ipsd++) {
-            finished_measuring |= ((count_low[ipsd] == NSAMPLES) && (count_high[ipsd] == NSAMPLES));
-        }
-
-        if (finished_measuring) {
-
-            struct psdMeasurement amplitude [2] ;
-            struct psdMeasurement mean_high [2];
-            struct psdMeasurement mean_low  [2];
-            struct psdMeasurement var_high  [2];
-            struct psdMeasurement var_low   [2];
-            struct psdMeasurement var       [2];
-            struct psdMeasurement stddev    [2];
+            /* Check that Currently Reading State is opposite of Last Read State (HIGH vs. LOW) */
+            if (state == last_read_state) { continue; }
+            else                          { last_read_state = state;}
 
 
-            double diffx1_0 = x1_max[0] - x1_min[0];
-            double diffx2_0 = x2_max[0] - x2_min[0];
-            double diffy1_0 = y1_max[0] - y1_min[0];
-            double diffy2_0 = y2_max[0] - y2_min[0];
-
-            double diffx1_1 = x1_max[1] - x1_min[1];
-            double diffx2_1 = x2_max[1] - x2_min[1];
-            double diffy1_1 = y1_max[1] - y1_min[1];
-            double diffy2_1 = y2_max[1] - y2_min[1];
-
-            double diffmax = 0;
-
-            /* update the maximum difference if the current is the largest
-             * we scale this by the GAIN of the channel to equalize ADC values
-             */
-            diffmax = max(diffx1_0/GAIN[PSD_ID][0],diffmax);
-            diffmax = max(diffx2_0/GAIN[PSD_ID][0],diffmax);
-            diffmax = max(diffy1_0/GAIN[PSD_ID][0],diffmax);
-            diffmax = max(diffy2_0/GAIN[PSD_ID][0],diffmax);
-            diffmax = max(diffx1_1/GAIN[PSD_ID][1],diffmax);
-            diffmax = max(diffx2_1/GAIN[PSD_ID][1],diffmax);
-            diffmax = max(diffy1_1/GAIN[PSD_ID][1],diffmax);
-            diffmax = max(diffy2_1/GAIN[PSD_ID][1],diffmax);
-
-            for (int ipsd = 0; ipsd < 2; ipsd++) {
-                mean_high[ipsd] = sum_high[ipsd]/NSAMPLES;
-                mean_low [ipsd] = sum_low [ipsd]/NSAMPLES;
-
-                amplitude [ipsd] = (mean_high[ipsd] - mean_low[ipsd]);
-
-                var_high[ipsd] = (sum_sq_high[ipsd]/NSAMPLES-mean_high[ipsd]*mean_high[ipsd]);
-                var_low[ipsd]  = ( sum_sq_low[ipsd]/NSAMPLES-mean_low [ipsd]*mean_low [ipsd]);
-
-                var[ipsd] = var_high[ipsd] + var_low[ipsd];
-
-                stddev[ipsd].x1 = sqrt(var[ipsd].x1);
-                stddev[ipsd].x2 = sqrt(var[ipsd].x2);
-                stddev[ipsd].y1 = sqrt(var[ipsd].y1);
-                stddev[ipsd].y2 = sqrt(var[ipsd].y2);
-            }
-
-            for (int ipsd = 0; ipsd < 2; ipsd++) {
-                // sprintf(msg, "%f %f %f %f", x1_max[ipsd], x2_max[ipsd], y1_max[ipsd], y2_max[ipsd]);
-                // Serial.println(msg);
-                // sprintf(msg, "%f %f %f %f", x1_min[ipsd], x2_min[ipsd], y1_min[ipsd], y2_min[ipsd]);
-                // Serial.println(msg);
-
-                /* Verbose Output */
-                sprintf(msg, "%1i high: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f temp:%4.1f", ipsd,
-                        voltage(mean_high[ipsd].x1, ipsd),
-                        voltage(mean_high[ipsd].x2, ipsd),
-                        voltage(mean_high[ipsd].y1, ipsd),
-                        voltage(mean_high[ipsd].y2, ipsd),
-                        readTemperature());
-                Serial.println(msg);
-
-                sprintf(msg, "           %6.4f    %6.4f    %6.4f    %6.4f",
-                        voltage(sqrt(var_high[ipsd].x1), ipsd),
-                        voltage(sqrt(var_high[ipsd].x2), ipsd),
-                        voltage(sqrt(var_high[ipsd].y1), ipsd),
-                        voltage(sqrt(var_high[ipsd].y2), ipsd));
-                Serial.println(msg);
-
-                sprintf(msg, "   low: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f temp:%4.1f",
-                        voltage(mean_low[ipsd].x1, ipsd),
-                        voltage(mean_low[ipsd].x2, ipsd),
-                        voltage(mean_low[ipsd].y1, ipsd),
-                        voltage(mean_low[ipsd].y2, ipsd),
-                        readTemperature());
-                Serial.println(msg);
-
-                sprintf(msg, "           %6.4f    %6.4f    %6.4f    %6.4f",
-                        voltage(sqrt(var_low[ipsd].x1), ipsd),
-                        voltage(sqrt(var_low[ipsd].x2), ipsd),
-                        voltage(sqrt(var_low[ipsd].y1), ipsd),
-                        voltage(sqrt(var_low[ipsd].y2), ipsd));
-                Serial.println(msg);
-
-                sprintf(msg, "  stddev : %6.4f    %6.4f    %6.4f    %6.4f",
-                        voltage(stddev[ipsd].x1, ipsd),
-                        voltage(stddev[ipsd].x2, ipsd),
-                        voltage(stddev[ipsd].y1, ipsd),
-                        voltage(stddev[ipsd].y2, ipsd));
-                Serial.println(msg);
-
-                /* Calculated Output */
-                sprintf(msg, "%1i x: % 6.4f y: % 6.4f", ipsd,
-                        ((amplitude[ipsd].x2-amplitude[ipsd].x1))/((amplitude[ipsd].x2+amplitude[ipsd].x1)),
-                        ((amplitude[ipsd].y2-amplitude[ipsd].y1))/((amplitude[ipsd].y2+amplitude[ipsd].y1)));
-                Serial.println(msg);
-            }  /* psd loop */
-
-            finished_reading = true;
-
-            /* reset position measurements */
             for (int ipsd=0; ipsd<2; ipsd++) {
-                x1_max[ipsd] = 0;
-                y1_max[ipsd] = 0;
-                x2_max[ipsd] = 0;
-                y2_max[ipsd] = 0;
+                /* Accumulate values for high state in this duty cycle */
+                if (state==1 && count_high[ipsd]<NSAMPLES) {
+                    count_high [ipsd] += 1;
+                    sum_high   [ipsd]  = sum_high   [ipsd] + data[ipsd];
+                    sum_sq_high[ipsd]  = sum_sq_high[ipsd] + data[ipsd]*data[ipsd];
 
-                x1_min[ipsd] = 4095;
-                y1_min[ipsd] = 4095;
-                x2_min[ipsd] = 4095;
-                y2_min[ipsd] = 4095;
+                    x1_max[ipsd] = max(data[ipsd].x1, x1_max[ipsd]);
+                    x2_max[ipsd] = max(data[ipsd].x2, x2_max[ipsd]);
+                    y1_max[ipsd] = max(data[ipsd].y1, y1_max[ipsd]);
+                    y2_max[ipsd] = max(data[ipsd].y2, y2_max[ipsd]);
 
-                count_low[ipsd] = 0;
-                count_high[ipsd] = 0;
+                    x1_min[ipsd] = min(data[ipsd].x1, x1_min[ipsd]);
+                    x2_min[ipsd] = min(data[ipsd].x2, x2_min[ipsd]);
+                    y1_min[ipsd] = min(data[ipsd].y1, y1_min[ipsd]);
+                    y2_min[ipsd] = min(data[ipsd].y2, y2_min[ipsd]);
+                }
 
-                sum_high[ipsd]     =  sum_high    [ipsd]*0;
-                sum_low[ipsd]      =  sum_low     [ipsd]*0;
-                sum_sq_high[ipsd]  =  sum_sq_high [ipsd]*0;
-                sum_sq_low[ipsd]   =  sum_sq_low  [ipsd]*0;
+                /* Accumulate values for low state in this duty cycle */
+                else if (state==0 && count_low[ipsd] < NSAMPLES) {
+                    count_low [ipsd] += 1;
+                    sum_low   [ipsd]  = sum_low   [ipsd] + data[ipsd];
+                    sum_sq_low[ipsd]  = sum_sq_low[ipsd] + data[ipsd]*data[ipsd];
+                }
+            }
+
+            /* Check if we have enough total samples for both the high and low states*/
+            for (int ipsd = 0; ipsd < 2; ipsd++) {
+                finished_reading |= ((count_low[ipsd] == NSAMPLES) && (count_high[ipsd] == NSAMPLES));
             }
         }
+    }
+
+    struct psdMeasurement amplitude [2] ;
+    struct psdMeasurement mean_high [2];
+    struct psdMeasurement mean_low  [2];
+    struct psdMeasurement var_high  [2];
+    struct psdMeasurement var_low   [2];
+    struct psdMeasurement var       [2];
+    struct psdMeasurement stddev    [2];
+
+    for (int ipsd = 0; ipsd < 2; ipsd++) {
+        mean_high[ipsd] = sum_high[ipsd]/NSAMPLES;
+        mean_low [ipsd] = sum_low [ipsd]/NSAMPLES;
+
+        amplitude [ipsd] = (mean_high[ipsd] - mean_low[ipsd]);
+
+        var_high[ipsd] = (sum_sq_high[ipsd]/NSAMPLES-mean_high[ipsd]*mean_high[ipsd]);
+        var_low[ipsd]  = ( sum_sq_low[ipsd]/NSAMPLES-mean_low [ipsd]*mean_low [ipsd]);
+
+        var[ipsd] = var_high[ipsd] + var_low[ipsd];
+
+        stddev[ipsd].x1 = sqrt(var[ipsd].x1);
+        stddev[ipsd].x2 = sqrt(var[ipsd].x2);
+        stddev[ipsd].y1 = sqrt(var[ipsd].y1);
+        stddev[ipsd].y2 = sqrt(var[ipsd].y2);
+    }
+
+    for (int ipsd = 0; ipsd < 2; ipsd++) {
+
+        /* Verbose Output */
+        sprintf(msg, "%1i high: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f temp:%4.1f", ipsd,
+                voltage(mean_high[ipsd].x1, ipsd),
+                voltage(mean_high[ipsd].x2, ipsd),
+                voltage(mean_high[ipsd].y1, ipsd),
+                voltage(mean_high[ipsd].y2, ipsd),
+                readTemperature());
+        Serial.println(msg);
+
+        sprintf(msg, "           %6.4f    %6.4f    %6.4f    %6.4f",
+                voltage(sqrt(var_high[ipsd].x1), ipsd),
+                voltage(sqrt(var_high[ipsd].x2), ipsd),
+                voltage(sqrt(var_high[ipsd].y1), ipsd),
+                voltage(sqrt(var_high[ipsd].y2), ipsd));
+        Serial.println(msg);
+
+        sprintf(msg, "   low: x1:%6.4f x2:%6.4f y1:%6.4f y2:%6.4f temp:%4.1f",
+                voltage(mean_low[ipsd].x1, ipsd),
+                voltage(mean_low[ipsd].x2, ipsd),
+                voltage(mean_low[ipsd].y1, ipsd),
+                voltage(mean_low[ipsd].y2, ipsd),
+                readTemperature());
+        Serial.println(msg);
+
+        sprintf(msg, "           %6.4f    %6.4f    %6.4f    %6.4f",
+                voltage(sqrt(var_low[ipsd].x1), ipsd),
+                voltage(sqrt(var_low[ipsd].x2), ipsd),
+                voltage(sqrt(var_low[ipsd].y1), ipsd),
+                voltage(sqrt(var_low[ipsd].y2), ipsd));
+        Serial.println(msg);
+
+        sprintf(msg, "  stddev : %6.4f    %6.4f    %6.4f    %6.4f",
+                voltage(stddev[ipsd].x1, ipsd),
+                voltage(stddev[ipsd].x2, ipsd),
+                voltage(stddev[ipsd].y1, ipsd),
+                voltage(stddev[ipsd].y2, ipsd));
+        Serial.println(msg);
+
+        /* Calculated Output */
+        sprintf(msg, "%1i x: % 6.4f y: % 6.4f", ipsd,
+                ((amplitude[ipsd].x2-amplitude[ipsd].x1))/((amplitude[ipsd].x2+amplitude[ipsd].x1)),
+                ((amplitude[ipsd].y2-amplitude[ipsd].y1))/((amplitude[ipsd].y2+amplitude[ipsd].y1)));
+        Serial.println(msg);
+    }  /* psd loop */
+
+    /* reset position measurements */
+    for (int ipsd=0; ipsd<2; ipsd++) {
+        x1_max[ipsd] = 0;
+        y1_max[ipsd] = 0;
+        x2_max[ipsd] = 0;
+        y2_max[ipsd] = 0;
+
+        x1_min[ipsd] = 4095;
+        y1_min[ipsd] = 4095;
+        x2_min[ipsd] = 4095;
+        y2_min[ipsd] = 4095;
+
+        count_low[ipsd] = 0;
+        count_high[ipsd] = 0;
+
+        sum_high[ipsd].reset();
+        sum_low[ipsd].reset();
+        sum_sq_high[ipsd].reset();
+        sum_sq_low[ipsd].reset();
     }
 }
 
@@ -698,8 +635,6 @@ void configureBoard () {
     printDualPSDMeasurement(measurePedestal());
     Serial.println ("Peak voltages:");
     printDualPSDMeasurement(measurePeak());
-
-    configured = true;
 
     // Serial.println ("d to toggle debug mode");
     // Serial.println ("s to toggle stddev output");

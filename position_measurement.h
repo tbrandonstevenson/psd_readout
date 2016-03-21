@@ -2,8 +2,9 @@
 #define POSITION_MEASUREMENT_H 
 
 #include "psd_readout.h"
+#include <Arduino.h>
 
-struct position_t {
+struct psdPosition {
 
     double x; 
     double y; 
@@ -70,11 +71,15 @@ struct psdMeasurement {
         y1 = 0;
         y2 = 0;
 
+        x1_sq = 0;
+        x2_sq = 0;
+        y1_sq = 0;
+        y2_sq = 0;
+
         state = 0; 
     }
 
-    void read (int ipsd)
-    {
+    void read (int ipsd) {
         x1 = analogRead(PSD_PIN[ipsd][0]);
         x2 = analogRead(PSD_PIN[ipsd][1]);
         y1 = analogRead(PSD_PIN[ipsd][2]);
@@ -96,12 +101,18 @@ struct psdMeasurement {
         pos.y1 = c1.y1 + c2.y1;
         pos.y2 = c1.y2 + c2.y2;
 
+        pos.x1_sq = c1.x1_sq  + c2.x1_sq ;
+        pos.x2_sq = c1.x2_sq  + c2.x2_sq ;
+        pos.y1_sq = c1.y1_sq  + c2.y1_sq ;
+        pos.y2_sq = c1.y2_sq  + c2.y2_sq ;
+
+
         pos.state = c1.state || c2.state; 
 
         return pos;
     }
 
-    friend psdMeasurement operator-(const psdMeasurement &c1, const psdMeasurement &c2)
+    friend psdMeasurement operator- (const psdMeasurement &c1, const psdMeasurement &c2)
     {
         psdMeasurement pos;
         pos.x1 = c1.x1 - c2.x1;
@@ -112,7 +123,7 @@ struct psdMeasurement {
         return pos;
     }
 
-    friend psdMeasurement operator/(const psdMeasurement &c1, const double &c2)
+    friend psdMeasurement operator/ (const psdMeasurement &c1, const double &c2)
     {
         psdMeasurement pos;
 
@@ -131,6 +142,11 @@ struct psdMeasurement {
         pos.x2 = c1.x2 / c2;
         pos.y1 = c1.y1 / c2;
         pos.y2 = c1.y2 / c2;
+
+        pos.x1_sq = c1.x1_sq / c2;
+        pos.x2_sq = c1.x2_sq / c2;
+        pos.y1_sq = c1.y1_sq / c2;
+        pos.y2_sq = c1.y2_sq / c2;
 
         return pos;
     }
@@ -161,11 +177,16 @@ struct psdMeasurement {
 
     psdMeasurement & operator= (const psdMeasurement &c1)
     {
-        //psdMeasurement pos;
         x1 = (c1.x1);
         x2 = (c1.x2);
         y1 = (c1.y1);
         y2 = (c1.y2);
+
+        x1_sq = (c1.x1_sq);
+        x2_sq = (c1.x2_sq);
+        y1_sq = (c1.y1_sq);
+        y2_sq = (c1.y2_sq);
+
 
         state = c1.state; 
 
@@ -182,8 +203,17 @@ struct dualPSDMeasurement {
     double y1 (int ipsd) {double ret = (ipsd==0) ? psd0.y1 : psd1.y1; return ret; }
     double y2 (int ipsd) {double ret = (ipsd==0) ? psd0.y2 : psd1.y2; return ret; }
 
+    double x1_sq (int ipsd) {double ret = (ipsd==0) ? psd0.x1_sq : psd1.x1_sq; return ret; }
+    double x2_sq (int ipsd) {double ret = (ipsd==0) ? psd0.x2_sq : psd1.x2_sq; return ret; }
+    double y1_sq (int ipsd) {double ret = (ipsd==0) ? psd0.y1_sq : psd1.y1_sq; return ret; }
+    double y2_sq (int ipsd) {double ret = (ipsd==0) ? psd0.y2_sq : psd1.y2_sq; return ret; }
+
     double x (int ipsd) {double ret = (ipsd==0) ? psd0.x() : psd1.x(); return ret; }
     double y (int ipsd) {double ret = (ipsd==0) ? psd0.y() : psd1.y(); return ret; }
+
+    bool state () {
+        return (psd0.state || psd1.state); 
+    } 
 
     void read () {
         psd0.read(0); 
@@ -197,8 +227,8 @@ struct dualPSDMeasurement {
 }; 
 
 struct dualPosition {
-    struct position_t psd0; 
-    struct position_t psd1; 
+    struct psdPosition psd0; 
+    struct psdPosition psd1; 
 
     double x (int ipsd) {double ret = (ipsd==0) ? psd0.x : psd1.x; return ret; }
     double y (int ipsd) {double ret = (ipsd==0) ? psd0.y : psd1.y; return ret; }
@@ -242,6 +272,11 @@ struct dualPosition {
     void reset () {
         psd0.reset(); 
         psd1.reset(); 
+    }
+
+    void sanitize() {
+        psd0.sanitize(); 
+        psd1.sanitize(); 
     }
 
     /* prints a dual position measurement */

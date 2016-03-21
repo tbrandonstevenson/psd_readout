@@ -20,10 +20,10 @@ void setup() {
     Serial.begin(115200);
 
     /* Configure board properties */
-    Serial.println("Configuring board...");
     configureBoard();
-    delay (100);
-    Serial.println("Finished configuring...");
+    Serial.println("");
+    Serial.println("Finished configuring board.");
+    Serial.println("");
 }
 
 void loop()
@@ -43,6 +43,7 @@ void loop()
         if      (byteIn == 's') print_stddev = !print_stddev;
         if      (byteIn == 'c') calibrateThresholds();
         if      (byteIn == 'r') dynamic_recalibration = !dynamic_recalibration;
+        if      (byteIn == 'e') emulate = !emulate;
     }
 
     /* continuous triggering mode */
@@ -87,6 +88,12 @@ void readPosition (int nsamples) {
     struct dualPosition positions; 
     positions.reset(); 
 
+    double x [2]={0,0}; 
+    double y [2]={0,0}; 
+
+    double x_sq [2]={0,0}; 
+    double y_sq [2]={0,0}; 
+
     int cnt=0;
     while (cnt<nsamples) {
         if (triggered) {
@@ -103,8 +110,8 @@ void readPosition (int nsamples) {
                 positions.set_x (ipsd, positions.x(ipsd) + data.x(ipsd));
                 positions.set_y (ipsd, positions.y(ipsd) + data.y(ipsd));
 
-                positions.set_x_sq(ipsd, positions.x_sq(ipsd) + positions.x(ipsd)*positions.x(ipsd));
-                positions.set_y_sq(ipsd, positions.y_sq(ipsd) + positions.y(ipsd)*positions.y(ipsd));
+                positions.set_x_sq(ipsd, positions.x_sq(ipsd) + data.x(ipsd)*data.x(ipsd));
+                positions.set_y_sq(ipsd, positions.y_sq(ipsd) + data.y(ipsd)*data.y(ipsd));
             }
 
             /* increment measurement counter */
@@ -123,10 +130,10 @@ void readPosition (int nsamples) {
         positions.set_y_sq(ipsd, positions.y_sq(ipsd) / (nsamples));
 
         positions.set_x_err (ipsd, sqrt(positions.x_sq(ipsd) - positions.x(ipsd)*positions.x(ipsd)));
-        positions.set_x_err (ipsd, sqrt(positions.y_sq(ipsd) - positions.y(ipsd)*positions.y(ipsd)));
+        positions.set_y_err (ipsd, sqrt(positions.y_sq(ipsd) - positions.y(ipsd)*positions.y(ipsd)));
 
         /* Handle Cases of NAN */
-        //positions[ipsd].sanitize();
+        positions.sanitize();
     }
 
     /* print to serial port  */
@@ -143,9 +150,10 @@ struct dualPSDMeasurement readAmplitude ()
     struct dualPSDMeasurement pos_high;
     struct dualPSDMeasurement amplitude;
 
-    bool read_high = 0;
+    bool read_high = false;
 
     int last_read = millis();
+
     while (!finished_reading)  {
         if (triggered) {
             last_read==millis();
@@ -154,10 +162,10 @@ struct dualPSDMeasurement readAmplitude ()
             struct dualPSDMeasurement data = readPSDs();
 
             /* take the OR allowing either PSD to generate the trigger.  */
-            bool state = (data.psd0.state || data.psd1.state);
+            bool state = data.state();
 
             /* if we are in the high state, save a copy of the data (to use when reading the low state)  */
-            if (state==1) {
+            if (state) {
                 pos_high = data;
                 read_high = true;
             }
@@ -181,6 +189,25 @@ struct dualPSDMeasurement readAmplitude ()
                 return amplitude;
             };
         }
+    }
+
+    if (emulate) {
+
+        int sign; 
+
+        sign = random(0,1)*2-1; 
+
+        amplitude.psd0.x1=1 + sign * random(100)/10000.0; 
+        amplitude.psd0.x2=3 - sign * random(100)/10000.0; 
+        amplitude.psd0.y1=1 + sign * random(100)/10000.0; 
+        amplitude.psd0.y2=3 - sign * random(100)/10000.0; 
+
+        sign = random(0,1)*2-1; 
+
+        amplitude.psd1.x1=1 + sign * random(100)/10000.0; 
+        amplitude.psd1.x2=3 - sign * random(100)/10000.0; 
+        amplitude.psd1.y1=1 + sign * random(100)/10000.0; 
+        amplitude.psd1.y2=3 - sign * random(100)/10000.0; 
     }
 
     return amplitude;
@@ -456,6 +483,7 @@ int analogWriteVoltage (double voltage, int ipsd) {
 
 /* TODO need to make this work sanely with no-laser */
 void calibrateThresholds () {
+    Serial.println ("Recalibrating PSD Thresholds:"); 
     struct dualPSDMeasurement pedestal_reading  = measurePedestal();
     struct dualPSDMeasurement      peak_reading = measurePeak();
 
@@ -474,10 +502,8 @@ void calibrateThresholds () {
         max_peak [ipsd] = max(max_peak[ipsd], voltageNoCal(peak_reading.y1(ipsd)));
         max_peak [ipsd] = max(max_peak[ipsd], voltageNoCal(peak_reading.y2(ipsd)));
 
-        Serial.println ("amplitude");
-        Serial.println (max_peak[ipsd]);
-        Serial.println ("pedestal");
-        Serial.println (min_pedestal [ipsd]);
+        sprintf(msg, "    PSD %i pedestal=%fV, peak=%fV", min_pedestal[ipsd], max_peak[ipsd]); 
+        Serial.println(msg);
 
         threshold[ipsd] = max(MIN_THRESHOLD, (max_peak[ipsd]-min_pedestal[ipsd]) / 4.0);
 
@@ -486,7 +512,7 @@ void calibrateThresholds () {
         trig_threshold[ipsd] = threshold[ipsd];
     }
 
-    sprintf(msg, "Calibrating DAC thresholds to: %fV, %fV", threshold[0], threshold[1]);
+    sprintf(msg, "    Calibrating DAC thresholds to: %fV, %fV", threshold[0], threshold[1]);
     Serial.println(msg);
 }
 
@@ -503,12 +529,13 @@ void printDualPSDMeasurement (struct dualPSDMeasurement dual_mean ) {
 
     for (int ipsd=0; ipsd<2; ipsd++) {
 
+        // TODO: need to fix this! 
         x1_err[ipsd] = sqrt(mean[ipsd].x1_sq - mean[ipsd].x1*mean[ipsd].x1);
         x2_err[ipsd] = sqrt(mean[ipsd].x2_sq - mean[ipsd].x2*mean[ipsd].x2);
         y1_err[ipsd] = sqrt(mean[ipsd].y1_sq - mean[ipsd].y1*mean[ipsd].y1);
         y2_err[ipsd] = sqrt(mean[ipsd].y2_sq - mean[ipsd].y2*mean[ipsd].y2);
 
-        sprintf(msg, "psd%i: x1=%6.4f x2=%6.4f y1=%6.4f y2=%6.4f \(x1_err=%6.4f x2_err=%6.4f y1_err=%6.4f y2_err=%6.4f\)",
+        sprintf(msg, "    psd%i: x1=%6.4f x2=%6.4f y1=%6.4f y2=%6.4f \(x1_err=%6.4f x2_err=%6.4f y1_err=%6.4f y2_err=%6.4f\)",
 
                 ipsd,
 
@@ -549,9 +576,8 @@ struct dualPSDMeasurement measurePeakPedestal (bool target_state) {
 
         while (cnt<NSAMPLES) {
             if (!no_trig_mode && (millis()-last_trig_time > 1000)) {
-                sprintf(msg, "Entering no_trig mode for peak/pedestal measurement of PSD%i. Laser is off or low amplitude?", ipsd);
+                sprintf(msg, "    PSD0: n.b. no_trig mode for peak/pedestal measurement of PSD. Laser is off or low amplitude for this PSD", ipsd);
                 Serial.println(msg);
-                //diagnosticPrint();
                 no_trig_mode = true;
             }
             else if (triggered || no_trig_mode) {
@@ -563,6 +589,10 @@ struct dualPSDMeasurement measurePeakPedestal (bool target_state) {
                 if (data.state==target_state || no_trig_mode) {
                     last_trig_time=millis();
                     sum[ipsd]=sum[ipsd]+data;
+                    sum[ipsd].x1_sq = sum[ipsd].x1_sq + data.x1*data.x1; 
+                    sum[ipsd].x2_sq = sum[ipsd].x2_sq + data.x2*data.x2; 
+                    sum[ipsd].y1_sq = sum[ipsd].y1_sq + data.y1*data.y1; 
+                    sum[ipsd].y2_sq = sum[ipsd].y2_sq + data.y2*data.y2; 
                     cnt=cnt+1;
                 }
             }
@@ -570,13 +600,9 @@ struct dualPSDMeasurement measurePeakPedestal (bool target_state) {
         triggered = false;
     }
 
-    for (int ipsd=0; ipsd<2; ipsd++) {
-        mean[ipsd] = sum[ipsd]/NSAMPLES;
-    }
-
     struct dualPSDMeasurement dualpsd;
-    dualpsd.psd0 = mean[0];
-    dualpsd.psd1 = mean[1];
+    dualpsd.psd0 = sum [0]/NSAMPLES;
+    dualpsd.psd1 = sum [1]/NSAMPLES;
 
     return dualpsd;
 }
@@ -610,14 +636,15 @@ void configureBoard () {
     pinMode(LED[1], OUTPUT);
     digitalWrite(LED[1], LOW);
 
+    Serial.println("PSD Settings:");
     const char *psd_ascii[2] = {"OPTICAL_TABLE", "CAMERA       "};
-    sprintf(msg, "PSD Firmware Compiled for PSD Station: %s", psd_ascii[PSD_ID]);
+    sprintf(msg, "    PSD Firmware Compiled for PSD Station: %s", psd_ascii[PSD_ID]);
     Serial.println(msg);
 
-    sprintf(msg, "Gain: Ch0=%4.3f Ch1=%4.3f", GAIN[PSD_ID][0], GAIN[PSD_ID][1]);
+    sprintf(msg, "    Gain: Ch0=%4.3f (PSD122C) Ch1=%4.3f (PSD122D)", GAIN[PSD_ID][0], GAIN[PSD_ID][1]);
     Serial.println(msg);
 
-    sprintf(msg, "DAC Attenuation: Ch0=%4.3f Ch1=%4.3f", DAC_ATTENUATION[PSD_ID][0], DAC_ATTENUATION[PSD_ID][1]);
+    sprintf(msg, "    DAC Attenuation: Ch0=%4.3f Ch1=%4.3f", DAC_ATTENUATION[PSD_ID][0], DAC_ATTENUATION[PSD_ID][1]);
     Serial.println(msg);
 
     /* Set Default Threshold Voltages */
@@ -626,14 +653,14 @@ void configureBoard () {
 
     for (int ipsd=0; ipsd<2; ipsd++) {
         int dac_counts = analogWriteVoltage(trig_threshold[ipsd], ipsd);
-        sprintf(msg, "Writing threshold to DAC%i: %f \(%i counts\)", ipsd, trig_threshold[ipsd], dac_counts);
+        sprintf(msg, "    Writing default threshold to DAC%i: %f \(%i counts\)", ipsd, trig_threshold[ipsd], dac_counts);
         Serial.println(msg);
     }
 
 
-    Serial.println ("Pedestals:");
+    Serial.println ("Measuring Pedestals:");
     printDualPSDMeasurement(measurePedestal());
-    Serial.println ("Peak voltages:");
+    Serial.println ("Measuring Peak Voltages:");
     printDualPSDMeasurement(measurePeak());
 
     // Serial.println ("d to toggle debug mode");

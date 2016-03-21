@@ -2,6 +2,7 @@
 #define PSD_READOUT_H 
 
 volatile bool triggered = false;
+bool emulate=false; 
 
 bool print_stddev          = false;
 
@@ -55,7 +56,6 @@ double voltage (double adc_counts, int ipsd);
 double voltageNoCal (double adc_counts); 
 
 void debugPrint (); 
-void sanitizePosition(struct position_t &position); 
 void readPosition (); 
 void readPositionDebug(); 
 void calibrateThresholds (); 

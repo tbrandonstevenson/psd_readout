@@ -502,7 +502,7 @@ void calibrateThresholds () {
         max_peak [ipsd] = max(max_peak[ipsd], voltageNoCal(peak_reading.y1(ipsd)));
         max_peak [ipsd] = max(max_peak[ipsd], voltageNoCal(peak_reading.y2(ipsd)));
 
-        sprintf(msg, "    PSD %i pedestal=%fV, peak=%fV", ipsd, min_pedestal[ipsd], max_peak[ipsd]); 
+        sprintf(msg, "    PSD%i pedestal=%5.3fV, peak=%5.3fV", ipsd, min_pedestal[ipsd], max_peak[ipsd]); 
         Serial.println(msg);
 
         threshold[ipsd] = max(MIN_THRESHOLD, (max_peak[ipsd]-min_pedestal[ipsd]) / 4.0);

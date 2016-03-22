@@ -33,7 +33,7 @@ void loop()
     if (beat%1000000==0) {
         triggered = false;
         if (debug) diagnosticPrint();
-        //calibrateThresholds();
+        calibrateThresholds(true);
     }
 
     /* parse serial commands */
@@ -41,17 +41,9 @@ void loop()
         char byteIn = Serial.read();
         if      (byteIn == 'd') debug = !debug;
         if      (byteIn == 's') print_stddev = !print_stddev;
-        if      (byteIn == 'c') calibrateThresholds();
+        if      (byteIn == 'c') calibrateThresholds(false);
         if      (byteIn == 'r') dynamic_recalibration = !dynamic_recalibration;
         if      (byteIn == 'e') emulate = !emulate;
-    }
-
-    /* continuous triggering mode */
-    else if (triggered) {
-        beat=0;
-        if   (!debug) readPosition(NSAMPLES);
-        else          readPositionDebug();
-        meas_cnt++;
     }
 
     /* recalibrate automatically if we have dynamic calibration enabled.. and some time has elapsed since the last reading */
@@ -59,7 +51,13 @@ void loop()
         meas_cnt=0;
         calibrateThresholds();
     }
-
+    /* continuous triggering mode */
+    else if (triggered) {
+        beat=0;
+        if   (!debug) readPosition(NSAMPLES);
+        else          readPositionDebug();
+        meas_cnt++;
+    }
 
 }
 
@@ -463,7 +461,7 @@ int analogWriteVoltage (double voltage, int ipsd) {
     /* TODO: voltage should range between ~0.13 and 0.6875 */
     /* need to figure this out exactly.. */
 
-    voltage = max(0.14,   voltage);
+    voltage = max(0.14, voltage);
     voltage = min(0.68, voltage);
 
     double vref = VREF;  /* 2.5V */
@@ -482,38 +480,46 @@ int analogWriteVoltage (double voltage, int ipsd) {
 }
 
 /* TODO need to make this work sanely with no-laser */
-void calibrateThresholds () {
-    Serial.println ("Recalibrating PSD Thresholds:"); 
-    struct dualPSDMeasurement pedestal_reading  = measurePedestal();
-    struct dualPSDMeasurement      peak_reading = measurePeak();
+void calibrateThresholds (bool silent) {
+    if (!silent) Serial.println ("Recalibrating PSD Thresholds:"); 
+    struct dualPSDMeasurement pedestal_reading  = measurePedestal(silent);
+    struct dualPSDMeasurement      peak_reading = measurePeak(silent);
 
-    double max_peak      [2] = {0,0};
-    double min_pedestal  [2] = {2.5,2.5};
+    double min_peak      [2] = {2.5,2.5};
+    double max_pedestal  [2] = {0,0};
     double threshold [2];
 
     for (int ipsd=0; ipsd<2; ipsd++) {
-        min_pedestal[ipsd] = min(min_pedestal[ipsd], voltageNoCal(pedestal_reading.x1(ipsd)));
-        min_pedestal[ipsd] = min(min_pedestal[ipsd], voltageNoCal(pedestal_reading.x2(ipsd)));
-        min_pedestal[ipsd] = min(min_pedestal[ipsd], voltageNoCal(pedestal_reading.y1(ipsd)));
-        min_pedestal[ipsd] = min(min_pedestal[ipsd], voltageNoCal(pedestal_reading.y2(ipsd)));
+        max_pedestal[ipsd] = max(max_pedestal[ipsd], voltageNoCal(pedestal_reading.x1(ipsd)));
+        max_pedestal[ipsd] = max(max_pedestal[ipsd], voltageNoCal(pedestal_reading.x2(ipsd)));
+        max_pedestal[ipsd] = max(max_pedestal[ipsd], voltageNoCal(pedestal_reading.y1(ipsd)));
+        max_pedestal[ipsd] = max(max_pedestal[ipsd], voltageNoCal(pedestal_reading.y2(ipsd)));
 
-        max_peak [ipsd] = max(max_peak[ipsd], voltageNoCal(peak_reading.x1(ipsd)));
-        max_peak [ipsd] = max(max_peak[ipsd], voltageNoCal(peak_reading.x2(ipsd)));
-        max_peak [ipsd] = max(max_peak[ipsd], voltageNoCal(peak_reading.y1(ipsd)));
-        max_peak [ipsd] = max(max_peak[ipsd], voltageNoCal(peak_reading.y2(ipsd)));
+        min_peak [ipsd] = min(min_peak[ipsd], voltageNoCal(peak_reading.x1(ipsd)));
+        min_peak [ipsd] = min(min_peak[ipsd], voltageNoCal(peak_reading.x2(ipsd)));
+        min_peak [ipsd] = min(min_peak[ipsd], voltageNoCal(peak_reading.y1(ipsd)));
+        min_peak [ipsd] = min(min_peak[ipsd], voltageNoCal(peak_reading.y2(ipsd)));
 
-        sprintf(msg, "    PSD%i pedestal=%5.3fV, peak=%5.3fV", ipsd, min_pedestal[ipsd], max_peak[ipsd]); 
-        Serial.println(msg);
+        if (!silent) sprintf(msg, "    PSD%i max pedestal=%5.3fV, min peak=%5.3fV", ipsd, max_pedestal[ipsd]/GAIN[PSD_ID][ipsd], min_peak[ipsd]/GAIN[PSD_ID][ipsd]); 
+        if (!silent) Serial.println(msg);
 
-        threshold[ipsd] = max(MIN_THRESHOLD, (max_peak[ipsd]-min_pedestal[ipsd]) / 4.0);
+        /* set the threshold to some value above the maximum pedestal... i choose 1/5 the amplitude but that's somewhat arbitrary */
+        threshold[ipsd] = max(MIN_THRESHOLD, max_pedestal[ipsd]+(min_peak[ipsd]-max_pedestal[ipsd])/5.0);
 
         analogWriteVoltage (threshold[ipsd], ipsd);
         analog_threshold[ipsd] = threshold[ipsd];
         trig_threshold[ipsd] = threshold[ipsd];
     }
 
-    sprintf(msg, "    Calibrating DAC thresholds to: %fV, %fV", threshold[0], threshold[1]);
-    Serial.println(msg);
+    if (!silent)  { 
+        sprintf(msg, "    Calibrating DAC thresholds to: %4.3fV, %4.3fV \(gain_corrected=%4.3fV, %4.3fV\)", 
+            threshold[0], 
+            threshold[1], 
+            threshold[0]/GAIN[PSD_ID][0],  
+            threshold[1]/GAIN[PSD_ID][1]
+        );
+        Serial.println(msg);
+    }
 }
 
 void printDualPSDMeasurement (struct dualPSDMeasurement dual_mean ) {
@@ -553,31 +559,35 @@ void printDualPSDMeasurement (struct dualPSDMeasurement dual_mean ) {
     }
 }
 
-struct dualPSDMeasurement measurePeak () {
-    return (measurePeakPedestal(1));
+struct dualPSDMeasurement measurePeak (bool silent) {
+    return (measurePeakPedestal(1, silent));
 }
 
-struct dualPSDMeasurement measurePedestal () {
-    return (measurePeakPedestal(0));
+struct dualPSDMeasurement measurePedestal (bool silent) {
+    return (measurePeakPedestal(0, silent));
 }
 
-struct dualPSDMeasurement measurePeakPedestal (bool target_state) {
+struct dualPSDMeasurement measurePeakPedestal (bool target_state, bool silent) {
     struct psdMeasurement sum [2];
     struct psdMeasurement mean [2];
     sum[0].reset();
     sum[1].reset();
 
 
+    int nsamples = 10; 
     for (int ipsd=0; ipsd<2; ipsd++) {
 
         int cnt = 0;
         bool no_trig_mode = false;
         int last_trig_time = millis();
+        int timeout_time = 80 ; // milliseconds
 
-        while (cnt<NSAMPLES) {
-            if (!no_trig_mode && (millis()-last_trig_time > 1000)) {
-                sprintf(msg, "    PSD0: n.b. no_trig mode for peak/pedestal measurement of PSD. Laser is off or low amplitude for this PSD", ipsd);
-                Serial.println(msg);
+        while (cnt<nsamples) {
+            if (!no_trig_mode && (millis()-last_trig_time > timeout_time)) {
+                if (!silent) { 
+                    sprintf(msg, "    PSD0: n.b. no_trig mode for peak/pedestal measurement of PSD. Laser is off or low amplitude for this PSD", ipsd); 
+                    Serial.println(msg);
+                }
                 no_trig_mode = true;
             }
             else if (triggered || no_trig_mode) {
@@ -601,8 +611,8 @@ struct dualPSDMeasurement measurePeakPedestal (bool target_state) {
     }
 
     struct dualPSDMeasurement dualpsd;
-    dualpsd.psd0 = sum [0]/NSAMPLES;
-    dualpsd.psd1 = sum [1]/NSAMPLES;
+    dualpsd.psd0 = sum [0]/nsamples;
+    dualpsd.psd1 = sum [1]/nsamples;
 
     return dualpsd;
 }
@@ -644,7 +654,10 @@ void configureBoard () {
     sprintf(msg, "    Gain: Ch0=%4.3f (PSD122C) Ch1=%4.3f (PSD122D)", GAIN[PSD_ID][0], GAIN[PSD_ID][1]);
     Serial.println(msg);
 
-    sprintf(msg, "    DAC Attenuation: Ch0=%4.3f Ch1=%4.3f", DAC_ATTENUATION[PSD_ID][0], DAC_ATTENUATION[PSD_ID][1]);
+    sprintf(msg, "    DAC Attenuation: Ch0=%4.3fV, Ch1=%4.3fV ", 
+        DAC_ATTENUATION[PSD_ID][0],
+        DAC_ATTENUATION[PSD_ID][1]
+    );
     Serial.println(msg);
 
     /* Set Default Threshold Voltages */
@@ -653,15 +666,15 @@ void configureBoard () {
 
     for (int ipsd=0; ipsd<2; ipsd++) {
         int dac_counts = analogWriteVoltage(trig_threshold[ipsd], ipsd);
-        sprintf(msg, "    Writing default threshold to DAC%i: %f \(%i counts\)", ipsd, trig_threshold[ipsd], dac_counts);
+        sprintf(msg, "    Writing default threshold to DAC%i: %4.3f \(gain_corrected=%4.3f\) \(%i counts\)", 
+            ipsd, trig_threshold[ipsd], trig_threshold[ipsd]/GAIN[PSD_ID][ipsd], dac_counts);
         Serial.println(msg);
     }
 
-
     Serial.println ("Measuring Pedestals:");
-    printDualPSDMeasurement(measurePedestal());
+    printDualPSDMeasurement(measurePedestal(false));
     Serial.println ("Measuring Peak Voltages:");
-    printDualPSDMeasurement(measurePeak());
+    printDualPSDMeasurement(measurePeak(false));
 
     // Serial.println ("d to toggle debug mode");
     // Serial.println ("s to toggle stddev output");

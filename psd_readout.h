@@ -8,7 +8,7 @@ bool print_stddev          = false;
 
 bool pinstate              = false;
 bool debug                 = false;
-bool dynamic_recalibration = false;
+bool dynamic_recalibration = true;
 bool abort_reading         = false;
 bool continuous_readout    = true;
 
@@ -21,7 +21,7 @@ static const int OPTICAL_TABLE = 0;
 static const int CAMERA = 1; 
 static const int PSD_ID = CAMERA; 
 
-static const int    recalibration_threshold = 5; 
+static const int    recalibration_threshold = 1; 
 
 static const int    LED     [2]    = { 24, 25 };
 static const int    PSD_PIN [2][4] = {{ 0,  1,  2,  3}, { 4,  5,  6,  7}};
@@ -58,12 +58,14 @@ double voltageNoCal (double adc_counts);
 void debugPrint (); 
 void readPosition (); 
 void readPositionDebug(); 
-void calibrateThresholds (); 
+void calibrateThresholds (bool silent = true); 
 void printPedestal (); 
 
 struct dualPSDMeasurement readPSDs(); 
 struct dualPSDMeasurement readAmplitude (); 
-struct dualPSDMeasurement measurePedestal (); 
+struct dualPSDMeasurement measurePedestal (bool silent=true); 
+struct dualPSDMeasurement measurePeak (bool silent=true); 
+struct dualPSDMeasurement measurePeakPedestal (bool target_state, bool silent=true); 
 
 void configureBoard (); 
 

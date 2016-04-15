@@ -4,7 +4,7 @@
 volatile bool triggered = false;
 bool emulate=false; 
 
-bool print_stddev          = false;
+bool print_stddev          = true;
 
 bool pinstate              = false;
 bool debug                 = false;

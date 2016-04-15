@@ -40,7 +40,7 @@ struct psdPosition {
 }; 
 
 struct psdMeasurement { 
-    bool state; 
+     bool state; 
 
     double x1    = 0;
     double x2    = 0;
@@ -85,11 +85,11 @@ struct psdMeasurement {
         y1 = analogRead(PSD_PIN[ipsd][2]);
         y2 = analogRead(PSD_PIN[ipsd][3]);
 
-        state = 0;
-        state |= voltage(x1, ipsd) > analog_threshold[ipsd];
-        state |= voltage(x2, ipsd) > analog_threshold[ipsd];
-        state |= voltage(y1, ipsd) > analog_threshold[ipsd];
-        state |= voltage(y2, ipsd) > analog_threshold[ipsd];
+        state  = 0;
+        state |= voltageNoCal(x1) > analog_threshold[ipsd];
+        state |= voltageNoCal(x2) > analog_threshold[ipsd];
+        state |= voltageNoCal(y1) > analog_threshold[ipsd];
+        state |= voltageNoCal(y2) > analog_threshold[ipsd];
     }
 
 
@@ -132,6 +132,15 @@ struct psdMeasurement {
         pos.y1 = c1.y1 / c2;
         pos.y2 = c1.y2 / c2;
 
+        
+        pos.x1_sq = c1.x1_sq / c2;
+        pos.x2_sq = c1.x2_sq / c2;
+        pos.y1_sq = c1.y1_sq / c2;
+        pos.y2_sq = c1.y2_sq / c2;
+
+        
+        pos.state = c1.state; 
+
         return pos;
     }
 
@@ -147,6 +156,8 @@ struct psdMeasurement {
         pos.x2_sq = c1.x2_sq / c2;
         pos.y1_sq = c1.y1_sq / c2;
         pos.y2_sq = c1.y2_sq / c2;
+
+        pos.state = c1.state; 
 
         return pos;
     }

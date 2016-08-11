@@ -19,7 +19,7 @@ char msg [110];
 
 static const int OPTICAL_TABLE = 0; 
 static const int CAMERA = 1; 
-static const int PSD_ID = CAMERA; 
+static const int PSD_ID = OPTICAL_TABLE; 
 
 static const int    recalibration_threshold = 1; 
 
@@ -36,8 +36,8 @@ static const double  DAC_ATTENUATION[2][2] = {{1.0,1.0},{0.325,0.325}}; // atten
 * high or low state. 
 */ 
 
-double MIN_THRESHOLD = 0.13; 
-double analog_threshold [2] = {0.15, 0.15}; 
+double MIN_THRESHOLD = 0.417; 
+double analog_threshold [2] = {0.417, 0.417}; 
 double   trig_threshold [2] = {MIN_THRESHOLD, MIN_THRESHOLD}; 
 
 static const int TIMEOUT_COUNT = 1000; 
